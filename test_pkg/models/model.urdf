@@ -1,0 +1,83 @@
+<?xml version="1.0" ?>
+<robot name="manipulator">
+  <!-- Link Definitions -->
+  <link name="world"/>
+
+  <joint name="world_to_drone" type="fixed">
+    <parent link="world"/>
+    <child link="cf2"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/> <!-- World 좌표계와 동일 -->
+  </joint>
+  
+<link name="cf2">
+  <inertial>
+    <origin xyz="0 0 0" rpy="0 0 0"/> <!-- Center of mass adjustment -->
+    <mass value="1"/>
+    <inertia ixx="0.032" ixy="0" ixz="0" iyy="0.032" iyz="0" izz="0.00012"/>
+  </inertial>
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/> <!-- Center of mass adjustment -->  
+    <geometry>
+        <mesh filename="package://test_pkg/models/meshes/crazyflie.dae" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </visual>
+</link>
+
+<!-- 엔드이펙터 -->
+  <link name="link_ee">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://test_pkg/models/meshes/EE.dae" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- 드론과 EE 연결 -->
+  <joint name="drone_to_ee" type="fixed">
+    <parent link="cf2"/>
+    <child link="link_ee"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+    
+    <!-- 곡면 추가 -->
+    <link name="curvature_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://test_pkg/models/meshes/curvature.dae" scale="0.01 0.02 0.02"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- 곡면을 월드에 고정-->
+  <joint name="world_to_curvature" type="fixed">
+    <parent link="world"/>
+    <child link="curvature_link"/>
+    <origin xyz="0.5 3.8 0" rpy="0 0 0"/>
+  </joint>
+
+
+  <!-- 구체 추가 -->
+  <link name="sphere_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://test_pkg/models/meshes/sphere.dae" scale="0.006 0.006 0.006"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- 구체를 월드에 고정-->
+  <joint name="world_to_sphere" type="fixed">
+    <parent link="world"/>
+    <child link="sphere_link"/>
+    <origin xyz="3 -1.2 0" rpy="0 0 0"/>
+  </joint>  
+  
+</robot>

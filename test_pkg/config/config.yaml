@@ -1,0 +1,28 @@
+global_config:
+  ros__parameters:
+    Simulation: true
+    Inverse_Kinematics: true
+
+su_fkik:
+  ros__parameters:
+    End_Effector_Offset: [0.075, 0.0, 0.02]
+    control_loop_hz: 300.0
+    numerical_calc_loop_hz: 50.0
+
+trajectory_generator:
+  ros__parameters:
+    position_delta_cmd: [0.1, 0.1, 0.1, 0.1]  #버튼한번당 바뀌는 커맨드속도
+    force_delta_cmd: 0.003
+    control_loop_hz: 200.0
+    numerical_calc_loop_hz: 50.0
+    force_lpf_cof: 3.0
+    normal_vector_estimator_lpf_cof: 3.0
+
+data_decryptor:
+  ros__parameters:
+    bag_name: log_0516_144632.csv
+
+wrench_bridge:
+  ros__parameters:
+    sampling_period: 0.005
+    cutoff_freq: 5.0
