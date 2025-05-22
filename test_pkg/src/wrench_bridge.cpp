@@ -24,13 +24,14 @@ public:
     auto qos_settings = rclcpp::QoS(rclcpp::QoSInitialization(RMW_QOS_POLICY_HISTORY_KEEP_LAST, 6),
     rmw_qos_profile_sensor_data);
     // Declare user parameters
-    declare_parameter("sampling_period", 1.0 / 200.0);  // [s]
-    declare_parameter("cutoff_freq", 5.0);               // [Hz]
+    declare_parameter("control_loop_hz", 200.0);  // [s]
+    declare_parameter("cutoff_freq", 5.0);        // [Hz]
 
-    sampling_period_ = get_parameter("sampling_period").as_double();
+    control_loop_hz_ = get_parameter("control_loop_hz").as_double();
     cutoff_freq_ = get_parameter("cutoff_freq").as_double();
 
-    // Compute alpha from cutoff frequency
+    // Compute sampling period and alpha from control_loop_hz
+    sampling_period_ = 1.0 / control_loop_hz_;
     double tau = 1.0 / (2.0 * M_PI * cutoff_freq_);
     alpha_ = sampling_period_ / (tau + sampling_period_);
 
@@ -51,9 +52,6 @@ public:
 
 
 
-    RCLCPP_INFO(this->get_logger(),
-                "Bridge initialized: fc=%.2f Hz, Ts=%.4f s, alpha=%.4f",
-                cutoff_freq_, sampling_period_, alpha_);
   }
 
 private:
@@ -141,6 +139,8 @@ private:
     publisher_->publish(wrench_global);
   }
 
+
+  double control_loop_hz_;  // ← 추가
   double sampling_period_;
   double cutoff_freq_;
   double alpha_;

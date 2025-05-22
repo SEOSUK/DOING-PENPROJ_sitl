@@ -271,6 +271,30 @@ target_include_directories(px4_rviz PUBLIC
 )
 
 
+# WRENCH_OBSERVER
+add_executable(wrench_observer src/wrench_observer.cpp)
+ament_target_dependencies(wrench_observer
+  rclcpp
+  std_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+  visualization_msgs
+  crazyflie_interfaces
+)
+
+install(TARGETS
+  wrench_observer
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+target_include_directories(wrench_observer PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+
 ###
 
 

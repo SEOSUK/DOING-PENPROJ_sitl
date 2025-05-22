@@ -152,7 +152,7 @@ private:
       Chat_x = normal_vector_hat;
       Chat_y = Chat_x.cross(g);
       if (Chat_y.norm() < 1e-6) {
-        RCLCPP_WARN(this->get_logger(), "[Warning!!!] Gravity vector and normal vector are parallel!");
+        // RCLCPP_WARN(this->get_logger(), "[Warning!!!] Gravity vector and normal vector are parallel!");
         return;
       }
     Chat_x.normalize();
@@ -218,10 +218,10 @@ private:
     else if (time_real > 2 && time_real < 4) chat_des_vel_xyzYaw[2] = 0.3;
     else if (time_real > 4.5 && time_real < 5)
     {
-      RCLCPP_INFO(this->get_logger(), "hovering done. ready to move");
+      // RCLCPP_INFO(this->get_logger(), "hovering done. ready to move");
       chat_des_vel_xyzYaw[2] = 0.0;
     }
-    RCLCPP_INFO(this->get_logger(), "z position: %lf", chat_des_vel_xyzYaw[2]);
+    // RCLCPP_INFO(this->get_logger(), "z position: %lf", chat_des_vel_xyzYaw[2]);
   }
 
 

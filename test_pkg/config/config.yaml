@@ -1,6 +1,6 @@
 global_config:
   ros__parameters:
-    Simulation: true
+    Simulation: false
     Inverse_Kinematics: true
 
 su_fkik:
@@ -11,7 +11,7 @@ su_fkik:
 
 trajectory_generator:
   ros__parameters:
-    position_delta_cmd: [0.1, 0.1, 0.1, 0.1]  #버튼한번당 바뀌는 커맨드속도
+    position_delta_cmd: [0.1, 0.1, 0.1, 0.1]
     force_delta_cmd: 0.003
     control_loop_hz: 200.0
     numerical_calc_loop_hz: 50.0
@@ -24,5 +24,13 @@ data_decryptor:
 
 wrench_bridge:
   ros__parameters:
-    sampling_period: 0.005
+    control_loop_hz: 100
     cutoff_freq: 5.0
+    
+wrench_observer:
+  ros__parameters:
+    control_loop_hz: 100.0
+    Momentum_of_inertia_vec: [0.1, 0.1, 0.1]
+    mass: 0.5
+    force_dob_fc: 5.0
+    Tau_dob_fc: 5.0

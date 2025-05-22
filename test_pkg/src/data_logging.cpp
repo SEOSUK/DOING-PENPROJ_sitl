@@ -106,7 +106,7 @@ private:
 
   void create_csv_file()
   {
-    std::string dir = std::string(std::getenv("HOME")) + "/sitl_crazy/CrazySim/ros2_ws/src/test_pkg/bag/";
+    std::string dir = std::string(std::getenv("HOME")) + "/sitl_ws/src/test_pkg/bag/";
     std::string filename = "log_" + get_current_time_string() + ".csv";
     std::string full_path = dir + filename;
 

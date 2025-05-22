@@ -27,18 +27,37 @@ def generate_launch_description():
 
     # 📥 config.yaml에서 global 파라미터 불러오기
     global_params = load_global_params(config_file)
+    simulation_enabled = global_params.get('Simulation', False)
 
     # 🛠 launch argument
     backend_arg = LaunchConfiguration('backend', default='cflib')
 
-    # 🚀 Simulation이 True일 경우에만 crazyflie launch 실행
+    # 🌀 crazyflie launch (simulation일 때만 실행)
     crazyflie_launch = None
-    if global_params.get('Simulation', False):
+    if simulation_enabled:
         crazyflie_launch = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(crazyflie_pkg_path, 'launch', 'launch.py')
             ),
             launch_arguments={'backend': backend_arg}.items()
+        )
+
+    # ⚙️ 조건에 따라 실행할 노드 선택 (지연 실행 그룹 안으로 이동)
+    if simulation_enabled:
+        wrench_node = Node(
+            package='test_pkg',
+            executable='wrench_bridge',
+            name='wrench_bridge',
+            parameters=[config_file],
+            output='screen'
+        )
+    else:
+        wrench_node = Node(
+            package='test_pkg',
+            executable='wrench_observer',
+            name='wrench_observer',
+            parameters=[config_file],
+            output='screen'
         )
 
     # ⏱ 2초 지연 후 실행할 노드들
@@ -70,13 +89,7 @@ def generate_launch_description():
                 output='screen'
             ),
 
-            Node(
-                package='test_pkg',
-                executable='wrench_bridge',
-                name='wrench_bridge',
-                parameters=[config_file],
-                output='screen'
-            ),
+            wrench_node,  # ✅ 조건 기반으로 선택된 노드
 
             Node(
                 package='test_pkg',
@@ -107,10 +120,9 @@ def generate_launch_description():
 
     # 📦 Launch 목록 구성 (Simulation 조건에 따라 crazyflie_launch 포함 여부 결정)
     launch_items = []
-
     if crazyflie_launch:
         launch_items.append(crazyflie_launch)
-
     launch_items.append(delayed_nodes)
 
     return LaunchDescription(launch_items)
+
