@@ -15,6 +15,7 @@
 #include "test_pkg/su_rot.hpp"
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <geometry_msgs/msg/wrench.hpp>
+#include "geometry_msgs/msg/twist.hpp"
 
 using namespace std::chrono_literals;
 
@@ -25,28 +26,49 @@ public:
     tf_broadcaster_(std::make_shared<tf2_ros::TransformBroadcaster>(this))
    {
 
-
+        //////////////////////////////////////////////////////////////////
         // FROM YAML /////////////////////////////////////////////////////
         control_loop_hz = this->declare_parameter<double>("control_loop_hz", 100.0);
         auto control_loop_period = std::chrono::duration<double>(1.0 / control_loop_hz);
-        std::vector<double> Momentum_of_inertia_vec = this->declare_parameter<std::vector<double>>("Momentum_of_inertia_vec", {0.01, 0.01, 0.01});
-        Momentum_of_inertia << Eigen::Vector3d(Momentum_of_inertia_vec[0], Momentum_of_inertia_vec[1], Momentum_of_inertia_vec[2]);
-        mass = this->declare_parameter<double>("mass", 100.0);
+
+        
+
+        // 관성 모멘트 구성 (대각행렬 가정)
+        Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();        
+        mass = this->declare_parameter<double>("mass", 1.0);
+        std::vector<double> Momentum_of_inertia_com = this->declare_parameter<std::vector<double>>("Momentum_of_inertia_com", {0.01, 0.01, 0.01});
+        std::vector<double> com_offset_vec = this->declare_parameter<std::vector<double>>("com_offset_vec", {0.01, 0.01, 0.01});
+
+        Momentum_of_inertia_total = Eigen::Matrix3d::Zero();
+        Momentum_of_inertia_total.diagonal() << Momentum_of_inertia_com[0], Momentum_of_inertia_com[1], Momentum_of_inertia_com[2];
+
+
+        com_offset << com_offset_vec[0], com_offset_vec[1], com_offset_vec[2];
+        // 평행축 정리 적용
+        Eigen::Matrix3d J_O = Momentum_of_inertia_total
+                            + mass * ((com_offset.transpose() * com_offset)(0) * identity
+                            - com_offset * com_offset.transpose());
+
+        // 결과를 Vector3 형태로 저장
+        Momentum_of_inertia << J_O(0, 0), J_O(1, 1), J_O(2, 2);
+        
         force_dob_fc = this->declare_parameter<double>("force_dob_fc", 100.0);
-        Tau_dob_fc = this->declare_parameter<double>("Tau_dob_fc", 100.0);
+        Tau_dob_fc = this->declare_parameter<double>("Tau_dob_fc", 100.0); 
 
 
-
+        //////////////////////////////////////////////////////////////////
         // QoS Setting ////////////////////////////////////////////////////        
-      rclcpp::QoS qos_settings = rclcpp::QoS(rclcpp::KeepLast(10))
-                                      .reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE)
-                                      .durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
+        rclcpp::QoS qos_settings = rclcpp::QoS(rclcpp::KeepLast(10))
+                                          .reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE)
+                                          .durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
 
 
 
 
         // Publisher Group ////////////////////////////////////////////////
         external_wrench_publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/ee/force_wrench", qos_settings);
+        thrust_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/MJ_Force", qos_settings);
+        global_force_meas_publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/MJ_Force_meas", qos_settings);
 
 
         //SUBSCRIBER GROUP
@@ -54,21 +76,19 @@ public:
           "/cf2/pose", qos_settings,  // Topic name and QoS depth
           std::bind(&wrench_observer::cf_pose_subscriber, this, std::placeholders::_1));
 
-        cf_vel_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        cf_vel_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
           "/cf/velocity", qos_settings,
           std::bind(&wrench_observer::cf_meas_velocity_callback, this, std::placeholders::_1));
 
-        cf_omega_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-          "/cf/omega", qos_settings,
-          std::bind(&wrench_observer::cf_meas_omega_callback, this, std::placeholders::_1));
-          
+        cf_acc_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
+          "/cf2/MJ_stateEstimate_acc", qos_settings,
+          std::bind(&wrench_observer::cf_meas_acc_callback, this, std::placeholders::_1));
 
-
-        cf_thrust_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-          "/cf/Thrust", qos_settings,
+        cf_thrust_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
+          "/cf2/MJ_Command_thrust", qos_settings,
           std::bind(&wrench_observer::cf_thrust_callback, this, std::placeholders::_1));
 
-        cf_desired_torque_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        cf_desired_torque_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
           "/cf/Desired_torque", qos_settings,
           std::bind(&wrench_observer::cf_desired_torque_callback, this, std::placeholders::_1));
           
@@ -102,7 +122,6 @@ public:
       {
 
         geometry_msgs::msg::Wrench external_wrench_msg;
-
         external_wrench_msg.force.x = global_force_hat[0];
         external_wrench_msg.force.y = global_force_hat[1];
         external_wrench_msg.force.z = global_force_hat[2];
@@ -112,6 +131,21 @@ public:
 
         external_wrench_publisher_->publish(external_wrench_msg);
 
+
+        geometry_msgs::msg::Twist global_command_Force_msg;
+        global_command_Force_msg.linear.x = global_command_Force[0];
+        global_command_Force_msg.linear.y = global_command_Force[1];
+        global_command_Force_msg.linear.z = global_command_Force[2];
+        global_command_Force_msg.angular.x = global_force_meas[0];
+        global_command_Force_msg.angular.y = global_force_meas[1];
+        global_command_Force_msg.angular.z = global_force_meas[2];
+        thrust_publisher_->publish(global_command_Force_msg);
+
+        std_msgs::msg::Float64MultiArray global_force_meas_msg;
+        global_force_meas_msg.data.push_back(global_force_meas[0]);
+        global_force_meas_msg.data.push_back(global_force_meas[1]);
+        global_force_meas_msg.data.push_back(global_force_meas[2]);
+        global_force_meas_publisher_->publish(global_force_meas_msg);
       }
 
 
@@ -157,35 +191,37 @@ public:
 
 
 
-    void cf_thrust_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+    void cf_thrust_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
     {
-      Thrust[2] = msg->data[0];
+      Thrust[2] = msg->values[0];
 
-      global_command_Force = R_B * Thrust;
+      global_command_Force = R_B * Thrust / 100000;
     }
 
-    void cf_desired_torque_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+    void cf_desired_torque_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
     {
-      desired_torque[0] = msg->data[0];
-      desired_torque[1] = msg->data[1];
-      desired_torque[2] = msg->data[2];
+      desired_torque[0] = msg->values[0];
+      desired_torque[1] = msg->values[1];
+      desired_torque[2] = msg->values[2];
       
     }
 
 
-    void cf_meas_velocity_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+    void cf_meas_velocity_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
     {
-      global_xyz_vel_meas[0] = msg->data[0];
-      global_xyz_vel_meas[1] = msg->data[1];
-      global_xyz_vel_meas[2] = msg->data[2];
+      global_xyz_vel_meas[0] = msg->values[0];
+      global_xyz_vel_meas[1] = msg->values[1];
+      global_xyz_vel_meas[2] = msg->values[2];
     }
 
 
-    void cf_meas_omega_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+    void cf_meas_acc_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
     {
-      body_omega_meas[0] = msg->data[0];
-      body_omega_meas[1] = msg->data[1];
-      body_omega_meas[2] = msg->data[2];
+      body_acc_meas[0] = msg->values[0];
+      body_acc_meas[1] = msg->values[1];
+      body_acc_meas[2] = msg->values[2];
+      global_acc_meas = R_B * body_acc_meas;
+      global_force_meas = mass * global_acc_meas;
     }    
       
 
@@ -316,12 +352,14 @@ public:
     rclcpp::Time start_time_;
 
     rclcpp::Publisher<geometry_msgs::msg::Wrench>::SharedPtr external_wrench_publisher_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr thrust_publisher_;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr global_force_meas_publisher_;
 
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_vel_subscriber_;
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_omega_subscriber_;
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_thrust_subscriber_;
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_desired_torque_subscriber_;
+    rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_vel_subscriber_;
+    rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_acc_subscriber_;
+    rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_thrust_subscriber_;
+    rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_desired_torque_subscriber_;
 
 
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
@@ -369,6 +407,12 @@ public:
     double mass = 0;
     double control_loop_hz;
     Eigen::Vector3d Momentum_of_inertia = Eigen::Vector3d::Zero();
+    Eigen::Matrix3d Momentum_of_inertia_total = Eigen::Matrix3d::Zero();
+    Eigen::Vector3d com_offset = Eigen::Vector3d::Zero();
+    Eigen::Vector3d body_acc_meas = Eigen::Vector3d::Zero();
+    Eigen::Vector3d global_acc_meas = Eigen::Vector3d::Zero();
+    Eigen::Vector3d global_force_meas = Eigen::Vector3d::Zero();
+
 
 
 };
