@@ -107,7 +107,7 @@ private:
   {
     if (global_force_meas.norm() > 0.001)
     {
-      contact_flag = true;
+      contact_flag = false;
     }
     else
     {
@@ -117,7 +117,7 @@ private:
     if (global_force_meas.norm() > 0.001 &&
         global_EE_xyz_vel_meas.norm() > 0.06)
     {
-      estimation_flag = true;
+      estimation_flag = false;
     }
     else
     {

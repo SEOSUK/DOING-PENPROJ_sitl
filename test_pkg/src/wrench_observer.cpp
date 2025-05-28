@@ -37,7 +37,7 @@ public:
         Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();        
         mass = this->declare_parameter<double>("mass", 1.0);
         std::vector<double> Momentum_of_inertia_com = this->declare_parameter<std::vector<double>>("Momentum_of_inertia_com", {0.01, 0.01, 0.01});
-        std::vector<double> com_offset_vec = this->declare_parameter<std::vector<double>>("com_offset_vec", {0.01, 0.01, 0.01});
+        std::vector<double> com_offset_vec = this->declare_parameter<std::vector<double>>("com_offset", {0.01, 0.01, 0.01});
 
         Momentum_of_inertia_total = Eigen::Matrix3d::Zero();
         Momentum_of_inertia_total.diagonal() << Momentum_of_inertia_com[0], Momentum_of_inertia_com[1], Momentum_of_inertia_com[2];
@@ -67,34 +67,35 @@ public:
 
         // Publisher Group ////////////////////////////////////////////////
         external_wrench_publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/ee/force_wrench", qos_settings);
-        thrust_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/MJ_Force", qos_settings);
-        global_force_meas_publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/MJ_Force_meas", qos_settings);
+        thrust_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/MJ_Force", qos_settings);   // 가속도곱하기 질량이랑 힘
+        global_force_meas_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/dob_checker", qos_settings);
 
 
         //SUBSCRIBER GROUP
-        cf_pose_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-          "/cf2/pose", qos_settings,  // Topic name and QoS depth
+        cf_pose_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+          "/pen/pose", qos_settings,  // Topic name and QoS depth
           std::bind(&wrench_observer::cf_pose_subscriber, this, std::placeholders::_1));
 
-        cf_vel_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
-          "/cf/velocity", qos_settings,
-          std::bind(&wrench_observer::cf_meas_velocity_callback, this, std::placeholders::_1));
-
-        cf_acc_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
-          "/cf2/MJ_stateEstimate_acc", qos_settings,
+        cf_acc_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+          "/pen/acc", qos_settings,
           std::bind(&wrench_observer::cf_meas_acc_callback, this, std::placeholders::_1));
 
-        cf_thrust_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
-          "/cf2/MJ_Command_thrust", qos_settings,
+        cf_vel_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+          "/pen/vel", qos_settings,
+          std::bind(&wrench_observer::cf_meas_vel_callback, this, std::placeholders::_1));
+
+
+        cf_thrust_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+          "/pen/thrust", qos_settings,
           std::bind(&wrench_observer::cf_thrust_callback, this, std::placeholders::_1));
 
-        cf_desired_torque_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
+        cf_desired_torque_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
           "/cf/Desired_torque", qos_settings,
           std::bind(&wrench_observer::cf_desired_torque_callback, this, std::placeholders::_1));
           
 
 
-        init_dob();
+        init_dob_1st_order();
         start_time_ = this->now();
 
         timer_ = this->create_wall_timer(
@@ -111,7 +112,7 @@ public:
             return;
         }
 
-        Update_dob();
+        Update_dob_1st_order();
 
         data_publish();
     }
@@ -125,9 +126,9 @@ public:
         external_wrench_msg.force.x = global_force_hat[0];
         external_wrench_msg.force.y = global_force_hat[1];
         external_wrench_msg.force.z = global_force_hat[2];
-        external_wrench_msg.torque.x = body_tau_hat[0];
-        external_wrench_msg.torque.y = body_tau_hat[1];
-        external_wrench_msg.torque.z = body_tau_hat[2];
+        external_wrench_msg.torque.x = Nominal_Force[0] - Filtered_Force[0];
+        external_wrench_msg.torque.y = Nominal_Force[1] - Filtered_Force[1];
+        external_wrench_msg.torque.z = Nominal_Force[2] - Filtered_Force[2];
 
         external_wrench_publisher_->publish(external_wrench_msg);
 
@@ -141,26 +142,32 @@ public:
         global_command_Force_msg.angular.z = global_force_meas[2];
         thrust_publisher_->publish(global_command_Force_msg);
 
-        std_msgs::msg::Float64MultiArray global_force_meas_msg;
-        global_force_meas_msg.data.push_back(global_force_meas[0]);
-        global_force_meas_msg.data.push_back(global_force_meas[1]);
-        global_force_meas_msg.data.push_back(global_force_meas[2]);
+        geometry_msgs::msg::Twist global_force_meas_msg;
+        global_force_meas_msg.linear.x = Nominal_Force_1nd[0];
+        global_force_meas_msg.linear.y = Nominal_Force_1nd[1];
+        global_force_meas_msg.linear.z = Nominal_Force_1nd[2];
+        global_force_meas_msg.angular.x = Filtered_Force_1nd[0];
+        global_force_meas_msg.angular.y = Filtered_Force_1nd[1];
+        global_force_meas_msg.angular.z = Filtered_Force_1nd[2];
         global_force_meas_publisher_->publish(global_force_meas_msg);
+
+
+
       }
 
 
 
-      void cf_pose_subscriber(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+      void cf_pose_subscriber(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
       {
-          global_xyz_meas[0] = msg->pose.position.x;
-          global_xyz_meas[1] = msg->pose.position.y;
-          global_xyz_meas[2] = msg->pose.position.z;
+          global_xyz_meas[0] = msg->data[0];
+          global_xyz_meas[1] = msg->data[1];
+          global_xyz_meas[2] = msg->data[2];
 
           tf2::Quaternion quat(
-              msg->pose.orientation.x,
-              msg->pose.orientation.y,
-              msg->pose.orientation.z,
-              msg->pose.orientation.w);
+              msg->data[3],
+              msg->data[4],
+              msg->data[5],
+              msg->data[6]);
 
           tf2::Matrix3x3 mat(quat);
           double roll, pitch, yaw;
@@ -191,42 +198,61 @@ public:
 
 
 
-    void cf_thrust_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
+    void cf_thrust_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
     {
-      Thrust[2] = msg->values[0];
-
-      global_command_Force = R_B * Thrust / 100000;
+      if (msg->data.size() < 1) {
+        RCLCPP_WARN(this->get_logger(), "Thrust msg->values is empty");
+        return;
+      }
+      Thrust[2] = msg->data[0];
+      global_command_Force = R_B * Thrust / 1000000.0;
     }
 
-    void cf_desired_torque_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
+    
+    void cf_desired_torque_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
     {
-      desired_torque[0] = msg->values[0];
-      desired_torque[1] = msg->values[1];
-      desired_torque[2] = msg->values[2];
-      
+      if (msg->data.size() < 3) {
+        RCLCPP_WARN(this->get_logger(), "Torque msg->values.size() < 3");
+        return;
+      }
+      desired_torque[0] = msg->data[0];
+      desired_torque[1] = msg->data[1];
+      desired_torque[2] = msg->data[2];
     }
 
 
-    void cf_meas_velocity_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
-    {
-      global_xyz_vel_meas[0] = msg->values[0];
-      global_xyz_vel_meas[1] = msg->values[1];
-      global_xyz_vel_meas[2] = msg->values[2];
-    }
 
-
-    void cf_meas_acc_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
+    void cf_meas_acc_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
     {
-      body_acc_meas[0] = msg->values[0];
-      body_acc_meas[1] = msg->values[1];
-      body_acc_meas[2] = msg->values[2];
+      if (msg->data.size() < 3) {
+        RCLCPP_WARN(this->get_logger(), "Acc msg->values.size() < 3");
+        return;
+      }
+      body_acc_meas[0] = msg->data[0];
+      body_acc_meas[1] = msg->data[1];
+      body_acc_meas[2] = msg->data[2];
       global_acc_meas = R_B * body_acc_meas;
+      // global_acc_meas[2] += 9.81;
       global_force_meas = mass * global_acc_meas;
-    }    
+    }
       
 
-  void init_dob()
+    void cf_meas_vel_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+    {
+      if (msg->data.size() < 3) {
+        RCLCPP_WARN(this->get_logger(), "Acc msg->values.size() < 3");
+        return;
+      }
+      global_xyz_vel_meas[0] = msg->data[0];
+      global_xyz_vel_meas[1] = msg->data[1];
+      global_xyz_vel_meas[2] = msg->data[2];
+    }
+
+
+  void init_dob_2nd_order()
   {
+    //TO GPT: Q filter를 butterworth 2차 필터로, input을 velocity로... 
+    // Pn = 1 / ms
     //------------------Force DoB P_n inv Q----------------------
 
     MinvQ_A_F <<  -sqrt(2) * force_dob_fc, -pow(force_dob_fc,2),
@@ -267,12 +293,66 @@ public:
     Q_B_Tau <<           1.0,                   0.0;
 
     Q_C_Tau <<           0.0,            pow(Tau_dob_fc,2);
-
-
   }
 
 
-  void Update_dob(){
+  void init_dob_1st_order(){
+    // 1차 Butterworth 필터 기반 DoB
+    // Pn = 1/m, Pn⁻¹Q = m * (wc / (s + wc))
+    double wc = force_dob_fc;
+
+    // Pn⁻¹ * Q 필터
+    MinvQ_A_F_1nd << -wc;
+    MinvQ_B_F_1nd << wc;
+    MinvQ_C_F_1nd << mass;
+
+    // Q 필터
+    Q_A_F_1nd << -wc;
+    Q_B_F_1nd << wc;
+    Q_C_F_1nd << 1.0;
+  }
+
+
+  void Update_dob_1st_order(){
+    ///////////////////////////
+    // -- Force DOB 1st-order -- //
+    ///////////////////////////    
+
+    // Nominal Side (input: measured acceleration)
+    state_MinvQ_dot_Fx_1nd = MinvQ_A_F_1nd(0,0) * state_MinvQ_Fx_1nd + MinvQ_B_F_1nd(0,0) * global_acc_meas[0];
+    state_MinvQ_Fx_1nd += state_MinvQ_dot_Fx_1nd / control_loop_hz;
+    Nominal_Force_1nd[0] = MinvQ_C_F_1nd(0,0) * state_MinvQ_Fx_1nd;
+
+    state_MinvQ_dot_Fy_1nd = MinvQ_A_F_1nd(0,0) * state_MinvQ_Fy_1nd + MinvQ_B_F_1nd(0,0) * global_acc_meas[1];
+    state_MinvQ_Fy_1nd += state_MinvQ_dot_Fy_1nd / control_loop_hz;
+    Nominal_Force_1nd[1] = MinvQ_C_F_1nd(0,0) * state_MinvQ_Fy_1nd;
+
+    state_MinvQ_dot_Fz_1nd = MinvQ_A_F_1nd(0,0) * state_MinvQ_Fz_1nd + MinvQ_B_F_1nd(0,0) * global_acc_meas[2];
+    state_MinvQ_Fz_1nd += state_MinvQ_dot_Fz_1nd / control_loop_hz;
+    Nominal_Force_1nd[2] = MinvQ_C_F_1nd(0,0) * state_MinvQ_Fz_1nd;
+
+    // Filtered Side (input: command force)
+    state_Q_dot_Fx_1nd = Q_A_F_1nd(0,0) * state_Q_Fx_1nd + Q_B_F_1nd(0,0) * global_command_Force[0];
+    state_Q_Fx_1nd += state_Q_dot_Fx_1nd / control_loop_hz;
+    Filtered_Force_1nd[0] = Q_C_F_1nd(0,0) * state_Q_Fx_1nd;
+
+    state_Q_dot_Fy_1nd = Q_A_F_1nd(0,0) * state_Q_Fy_1nd + Q_B_F_1nd(0,0) * global_command_Force[1];
+    state_Q_Fy_1nd += state_Q_dot_Fy_1nd / control_loop_hz;
+    Filtered_Force_1nd[1] = Q_C_F_1nd(0,0) * state_Q_Fy_1nd;
+
+    state_Q_dot_Fz_1nd = Q_A_F_1nd(0,0) * state_Q_Fz_1nd + Q_B_F_1nd(0,0) * global_command_Force[2];
+    state_Q_Fz_1nd += state_Q_dot_Fz_1nd / control_loop_hz;
+    Filtered_Force_1nd[2] = Q_C_F_1nd(0,0) * state_Q_Fz_1nd;
+
+    // Final estimation
+    global_force_hat = Nominal_Force_1nd - Filtered_Force_1nd;
+  }
+
+
+
+
+
+  void Update_dob_2nd_order(){
     ///////////////////////////
     // -- Force DOB -- //
     ///////////////////////////    
@@ -353,13 +433,13 @@ public:
 
     rclcpp::Publisher<geometry_msgs::msg::Wrench>::SharedPtr external_wrench_publisher_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr thrust_publisher_;
-    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr global_force_meas_publisher_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr global_force_meas_publisher_;
 
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
-    rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_vel_subscriber_;
-    rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_acc_subscriber_;
-    rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_thrust_subscriber_;
-    rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_desired_torque_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_pose_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_acc_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_vel_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_thrust_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_desired_torque_subscriber_;
 
 
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
@@ -410,9 +490,27 @@ public:
     Eigen::Matrix3d Momentum_of_inertia_total = Eigen::Matrix3d::Zero();
     Eigen::Vector3d com_offset = Eigen::Vector3d::Zero();
     Eigen::Vector3d body_acc_meas = Eigen::Vector3d::Zero();
+    Eigen::Vector3d body_vel_meas = Eigen::Vector3d::Zero();
     Eigen::Vector3d global_acc_meas = Eigen::Vector3d::Zero();
+    Eigen::Vector3d global_vel_meas = Eigen::Vector3d::Zero();
     Eigen::Vector3d global_force_meas = Eigen::Vector3d::Zero();
 
+
+
+
+// === 1st-order DoB 전용 변수 (_1nd suffix) ===
+Eigen::Matrix<double, 1, 1> Q_A_F_1nd, MinvQ_A_F_1nd;
+Eigen::Matrix<double, 1, 1> Q_B_F_1nd, MinvQ_B_F_1nd;
+Eigen::Matrix<double, 1, 1> Q_C_F_1nd, MinvQ_C_F_1nd;
+
+double state_Q_Fx_1nd = 0.0, state_Q_Fy_1nd = 0.0, state_Q_Fz_1nd = 0.0;
+double state_MinvQ_Fx_1nd = 0.0, state_MinvQ_Fy_1nd = 0.0, state_MinvQ_Fz_1nd = 0.0;
+double state_Q_dot_Fx_1nd = 0.0, state_Q_dot_Fy_1nd = 0.0, state_Q_dot_Fz_1nd = 0.0;
+double state_MinvQ_dot_Fx_1nd = 0.0, state_MinvQ_dot_Fy_1nd = 0.0, state_MinvQ_dot_Fz_1nd = 0.0;
+
+Eigen::Vector3d Nominal_Force_1nd = Eigen::Vector3d::Zero();
+Eigen::Vector3d Filtered_Force_1nd = Eigen::Vector3d::Zero();
+Eigen::Vector3d global_force_hat_1nd = Eigen::Vector3d::Zero();
 
 
 };

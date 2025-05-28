@@ -1,6 +1,6 @@
 global_config:
   ros__parameters:
-    Simulation: false
+    Simulation: true
     Inverse_Kinematics: true
 
 su_fkik:
@@ -24,13 +24,18 @@ data_decryptor:
 
 wrench_bridge:
   ros__parameters:
-    control_loop_hz: 100
+    control_loop_hz: 100.0
     cutoff_freq: 5.0
     
 wrench_observer:
   ros__parameters:
     control_loop_hz: 100.0
     Momentum_of_inertia_vec: [0.1, 0.1, 0.1]
-    mass: 0.5
+    mass: 0.04
     force_dob_fc: 5.0
     Tau_dob_fc: 5.0
+    com_offset: [0.1, 0.1, 0.1]
+
+su_rviz:
+  ros__parameters:
+    use_sim_time: true  # 예시로 하나라도 있어야 함

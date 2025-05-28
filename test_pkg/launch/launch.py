@@ -1,54 +1,54 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, TimerAction, OpaqueFunction, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from ament_index_python.packages import get_package_share_directory
 import os
 import yaml
 
-
 def load_global_params(config_file):
-    """config.yaml 내 global_config > ros__parameters 블록 로드"""
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     return config.get('global_config', {}).get('ros__parameters', {})
 
+def load_node_params(config_file, node_name):
+    with open(config_file, 'r') as f:
+        config = yaml.safe_load(f)
+    params = config.get(node_name, {}).get('ros__parameters', {})
+    print(f"[DEBUG] Loaded params for {node_name}: {params}")
+    return params
 
-def generate_launch_description():
-    # 📦 패키지 경로
+def launch_setup(context, *args, **kwargs):
     test_pkg_path = get_package_share_directory('test_pkg')
     crazyflie_pkg_path = get_package_share_directory('crazyflie')
 
-    # 🗂 경로 설정
     config_file = os.path.join(test_pkg_path, 'config', 'config.yaml')
     urdf_path = os.path.join(test_pkg_path, 'models', 'model.urdf')
     rviz_config_file = os.path.join(test_pkg_path, 'config', 'config.rviz')
 
-    # 📥 config.yaml에서 global 파라미터 불러오기
     global_params = load_global_params(config_file)
     simulation_enabled = global_params.get('Simulation', False)
 
-    # 🛠 launch argument
-    backend_arg = LaunchConfiguration('backend', default='cflib')
+    backend_value = LaunchConfiguration('backend')  # <-- 핵심 변경: perform(context) 제거
 
-    # 🌀 crazyflie launch (simulation일 때만 실행)
-    crazyflie_launch = None
+    launch_items = []
+
     if simulation_enabled:
         crazyflie_launch = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(crazyflie_pkg_path, 'launch', 'launch.py')
             ),
-            launch_arguments={'backend': backend_arg}.items()
+            launch_arguments=[('backend', backend_value)]
         )
+        launch_items.append(crazyflie_launch)
 
-    # ⚙️ 조건에 따라 실행할 노드 선택 (지연 실행 그룹 안으로 이동)
     if simulation_enabled:
         wrench_node = Node(
             package='test_pkg',
             executable='wrench_bridge',
             name='wrench_bridge',
-            parameters=[config_file],
+            parameters=[load_node_params(config_file, 'wrench_bridge')],
             output='screen'
         )
     else:
@@ -56,57 +56,58 @@ def generate_launch_description():
             package='test_pkg',
             executable='wrench_observer',
             name='wrench_observer',
-            parameters=[config_file],
+            parameters=[load_node_params(config_file, 'wrench_observer')],
             output='screen'
         )
 
-    # ⏱ 2초 지연 후 실행할 노드들
+    robot_description = ''
+    if os.path.exists(urdf_path):
+        with open(urdf_path, 'r') as urdf_file:
+            robot_description = urdf_file.read()
+    else:
+        raise FileNotFoundError(f"URDF file not found at {urdf_path}")
+
+    robot_state_publisher_node = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        parameters=[{'robot_description': robot_description}],
+        output='screen'
+    )
+
     delayed_nodes = TimerAction(
         period=2.0,
         actions=[
-
             Node(
                 package='test_pkg',
                 executable='su_fkik',
                 name='su_fkik',
-                parameters=[config_file, global_params],
+                parameters=[load_node_params(config_file, 'su_fkik')],
                 output='screen'
             ),
-
             Node(
                 package='test_pkg',
                 executable='su_rviz',
                 name='su_rviz',
-                parameters=[config_file],
+                parameters=[load_node_params(config_file, 'su_rviz')],
                 output='screen'
             ),
-
             Node(
                 package='test_pkg',
                 executable='trajectory_generator',
                 name='trajectory_generator',
-                parameters=[config_file],
+                parameters=[load_node_params(config_file, 'trajectory_generator')],
                 output='screen'
             ),
-
-            wrench_node,  # ✅ 조건 기반으로 선택된 노드
-
+            wrench_node,
             Node(
                 package='test_pkg',
                 executable='data_logging',
                 name='data_logging',
-                parameters=[config_file],
+                parameters=[load_node_params(config_file, 'data_decryptor')],
                 output='screen'
             ),
-
-            Node(
-                package='robot_state_publisher',
-                executable='robot_state_publisher',
-                name='robot_state_publisher',
-                parameters=[{'robot_description': open(urdf_path).read()}],
-                output='screen'
-            ),
-
+            robot_state_publisher_node,
             Node(
                 package='rviz2',
                 executable='rviz2',
@@ -118,11 +119,12 @@ def generate_launch_description():
         ]
     )
 
-    # 📦 Launch 목록 구성 (Simulation 조건에 따라 crazyflie_launch 포함 여부 결정)
-    launch_items = []
-    if crazyflie_launch:
-        launch_items.append(crazyflie_launch)
     launch_items.append(delayed_nodes)
+    return launch_items
 
-    return LaunchDescription(launch_items)
-
+def generate_launch_description():
+    backend_arg = DeclareLaunchArgument('backend', default_value='cflib')
+    return LaunchDescription([
+        backend_arg,
+        OpaqueFunction(function=launch_setup)
+    ])

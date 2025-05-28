@@ -225,8 +225,25 @@ $<INSTALL_INTERFACE:include>
 ${EIGEN3_INCLUDE_DIR}
 )
 
+#CF_COMMUNICATOR
+add_executable(cf_communicator src/cf_communicator.cpp)
+ament_target_dependencies(cf_communicator
+  rclcpp
+  geometry_msgs
+  std_msgs
+  crazyflie_interfaces
+)
 
+install(TARGETS
+  cf_communicator
+  DESTINATION lib/${PROJECT_NAME}
+)
 
+target_include_directories(cf_communicator PUBLIC
+$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+$<INSTALL_INTERFACE:include>
+${EIGEN3_INCLUDE_DIR}
+)
 # PX4_PLAYER
 add_executable(px4_player src/for_px4/px4_player.cpp)
 ament_target_dependencies(px4_player

@@ -32,8 +32,8 @@ private:
   void load_csv()
   {
     std::string filepath = std::string(std::getenv("HOME")) +
-                           "/sitl_crazy/CrazySim/ros2_ws/src/test_pkg/bag/" +
-                           "rosbag2_2025_05_14-01_19_05.csv";
+                           "/sitl_ws/src/test_pkg/bag/" +
+                           "rosbag2_2025_05_28-20_00_17.csv";
 
     std::ifstream file(filepath);
     if (!file.is_open()) {

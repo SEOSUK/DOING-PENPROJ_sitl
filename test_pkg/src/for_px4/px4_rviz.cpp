@@ -230,7 +230,7 @@ public:
       void accel_arrow_publsiher()
       {
         auto marker = visualization_msgs::msg::Marker();
-        marker.header.frame_id = "world";
+        marker.header.frame_id = "position";
         marker.header.stamp = this->get_clock()->now();
         marker.ns = "acceleration";
         marker.id = 0;
@@ -238,14 +238,14 @@ public:
         marker.action = visualization_msgs::msg::Marker::ADD;
 
         geometry_msgs::msg::Point start_point, end_point;
-        start_point.x = position[0];
-        start_point.y = position[1];
-        start_point.z = position[2];
+        start_point.x = 0;
+        start_point.y = 0;
+        start_point.z = 0;
         // RE_acceleration_filtered = alpha * RE_acceleration + (1.0 - alpha) * RE_acceleration_filtered;
 
-        end_point.x = start_point.x + RE_acceleration[0];
-        end_point.y = start_point.y + RE_acceleration[1];
-        end_point.z = start_point.z + RE_acceleration[2];
+        end_point.x = start_point.x + acceleration[0];
+        end_point.y = start_point.y + acceleration[1];
+        end_point.z = start_point.z + acceleration[2] + 9.81;
 
         marker.points.push_back(start_point);
         marker.points.push_back(end_point);
@@ -467,35 +467,35 @@ public:
 
 
     // Individual Motor Thrust [Trvial]
-    individual_motor_thrust[0] = msg->data[31];
-    individual_motor_thrust[1] = msg->data[32];
-    individual_motor_thrust[2] = msg->data[33];
-    individual_motor_thrust[3] = msg->data[34];
+    individual_motor_thrust[0] = msg->data[34];
+    individual_motor_thrust[1] = msg->data[35];
+    individual_motor_thrust[2] = msg->data[36];
+    individual_motor_thrust[3] = msg->data[37];
 
     // Servo Angle [Trvial]
-    servo_angle[0] = msg->data[35];
-    servo_angle[1] = msg->data[36];
-    servo_angle[2] = msg->data[37];
-    servo_angle[3] = msg->data[38];
+    servo_angle[0] = msg->data[38];
+    servo_angle[1] = msg->data[39];
+    servo_angle[2] = msg->data[40];
+    servo_angle[3] = msg->data[41];
 
     // Desired Servo Angle [Trvial]
-    desired_servo_angle[0] = msg->data[39];
-    desired_servo_angle[1] = msg->data[40];
-    desired_servo_angle[2] = msg->data[41];
-    desired_servo_angle[3] = msg->data[42];
+    desired_servo_angle[0] = msg->data[43];
+    desired_servo_angle[1] = msg->data[44];
+    desired_servo_angle[2] = msg->data[45];
+    desired_servo_angle[3] = msg->data[46];
 
     // Acceleration [Body]
-    acceleration[0] = msg->data[43];
-    acceleration[1] = msg->data[44];
-    acceleration[2] = msg->data[45];
+    acceleration[0] = msg->data[48];
+    acceleration[1] = msg->data[49];
+    acceleration[2] = msg->data[50];
     RE_acceleration = R_B * acceleration;
 
 
 
     // Desired Acceleration [Body]
-    desired_acceleration[0] = msg->data[46];
-    desired_acceleration[1] = msg->data[47];
-    desired_acceleration[2] = msg->data[48];
+    desired_acceleration[0] = msg->data[51];
+    desired_acceleration[1] = msg->data[52];
+    desired_acceleration[2] = msg->data[53];
     RE_desired_acceleration = desired_acceleration;
     RE_desired_acceleration[2] += 80;
 
