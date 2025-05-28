@@ -498,19 +498,19 @@ public:
 
 
 
-// === 1st-order DoB 전용 변수 (_1nd suffix) ===
-Eigen::Matrix<double, 1, 1> Q_A_F_1nd, MinvQ_A_F_1nd;
-Eigen::Matrix<double, 1, 1> Q_B_F_1nd, MinvQ_B_F_1nd;
-Eigen::Matrix<double, 1, 1> Q_C_F_1nd, MinvQ_C_F_1nd;
+    // === 1st-order DoB 전용 변수 (_1nd suffix) ===
+    Eigen::Matrix<double, 1, 1> Q_A_F_1nd, MinvQ_A_F_1nd;
+    Eigen::Matrix<double, 1, 1> Q_B_F_1nd, MinvQ_B_F_1nd;
+    Eigen::Matrix<double, 1, 1> Q_C_F_1nd, MinvQ_C_F_1nd;
 
-double state_Q_Fx_1nd = 0.0, state_Q_Fy_1nd = 0.0, state_Q_Fz_1nd = 0.0;
-double state_MinvQ_Fx_1nd = 0.0, state_MinvQ_Fy_1nd = 0.0, state_MinvQ_Fz_1nd = 0.0;
-double state_Q_dot_Fx_1nd = 0.0, state_Q_dot_Fy_1nd = 0.0, state_Q_dot_Fz_1nd = 0.0;
-double state_MinvQ_dot_Fx_1nd = 0.0, state_MinvQ_dot_Fy_1nd = 0.0, state_MinvQ_dot_Fz_1nd = 0.0;
+    double state_Q_Fx_1nd = 0.0, state_Q_Fy_1nd = 0.0, state_Q_Fz_1nd = 0.0;
+    double state_MinvQ_Fx_1nd = 0.0, state_MinvQ_Fy_1nd = 0.0, state_MinvQ_Fz_1nd = 0.0;
+    double state_Q_dot_Fx_1nd = 0.0, state_Q_dot_Fy_1nd = 0.0, state_Q_dot_Fz_1nd = 0.0;
+    double state_MinvQ_dot_Fx_1nd = 0.0, state_MinvQ_dot_Fy_1nd = 0.0, state_MinvQ_dot_Fz_1nd = 0.0;
 
-Eigen::Vector3d Nominal_Force_1nd = Eigen::Vector3d::Zero();
-Eigen::Vector3d Filtered_Force_1nd = Eigen::Vector3d::Zero();
-Eigen::Vector3d global_force_hat_1nd = Eigen::Vector3d::Zero();
+    Eigen::Vector3d Nominal_Force_1nd = Eigen::Vector3d::Zero();
+    Eigen::Vector3d Filtered_Force_1nd = Eigen::Vector3d::Zero();
+    Eigen::Vector3d global_force_hat_1nd = Eigen::Vector3d::Zero();
 
 
 };

@@ -4,6 +4,7 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <eigen3/Eigen/Core>
 #include <eigen3/Eigen/Dense>
+#include <cmath>
 
 using std::placeholders::_1;
 
@@ -90,7 +91,7 @@ private:
   void cf_omega_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
   {
     for (size_t i = 0; i < 3; ++i)
-      omega_data_(i) = msg->values[i];
+      omega_data_(i) = msg->values[i] * M_PI / 180;
   }
 
 
