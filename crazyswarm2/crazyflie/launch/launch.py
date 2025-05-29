@@ -95,7 +95,7 @@ def generate_launch_description():
             executable='crazyflie_server.py',
             condition=LaunchConfigurationEquals('backend','cflib'),
             name='crazyflie_server',
-            output='screen',
+            output='log',
             parameters=server_params
         ),
         Node(

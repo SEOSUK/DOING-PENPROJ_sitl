@@ -1,19 +1,19 @@
 global_config:
   ros__parameters:
     Simulation: true
-    Inverse_Kinematics: true
+    Inverse_Kinematics: false
 
 su_fkik:
   ros__parameters:
     End_Effector_Offset: [0.075, 0.0, 0.02]
-    control_loop_hz: 300.0
+    control_loop_hz: 100.0
     numerical_calc_loop_hz: 50.0
 
 trajectory_generator:
   ros__parameters:
     position_delta_cmd: [0.1, 0.1, 0.1, 0.1]
     force_delta_cmd: 0.003
-    control_loop_hz: 200.0
+    control_loop_hz: 100.0
     numerical_calc_loop_hz: 50.0
     force_lpf_cof: 3.0
     normal_vector_estimator_lpf_cof: 3.0

@@ -4,6 +4,7 @@ from launch.actions import DeclareLaunchArgument, TimerAction, OpaqueFunction, I
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from ament_index_python.packages import get_package_share_directory
+from launch.actions import LogInfo
 import os
 import yaml
 
@@ -42,6 +43,16 @@ def launch_setup(context, *args, **kwargs):
             launch_arguments=[('backend', backend_value)]
         )
         launch_items.append(crazyflie_launch)
+    # cf_communicator node 실행 (crazyflie backend와 함께)
+    cf_communicator_node = Node(
+        package='test_pkg',
+        executable='cf_communicator',
+        name='cf_communicator',
+        parameters=[load_node_params(config_file, 'cf_communicator')],
+        output='screen'
+    )
+    launch_items.append(cf_communicator_node)
+
 
     if simulation_enabled:
         wrench_node = Node(
@@ -82,7 +93,10 @@ def launch_setup(context, *args, **kwargs):
                 package='test_pkg',
                 executable='su_fkik',
                 name='su_fkik',
-                parameters=[load_node_params(config_file, 'su_fkik')],
+                parameters=[
+                    global_params,
+                    load_node_params(config_file, 'su_fkik')
+                ],
                 output='screen'
             ),
             Node(

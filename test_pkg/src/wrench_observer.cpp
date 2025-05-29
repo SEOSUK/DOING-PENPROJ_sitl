@@ -72,7 +72,7 @@ public:
 
 
         //SUBSCRIBER GROUP
-        cf_pose_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        cf_pose_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
           "/pen/pose", qos_settings,  // Topic name and QoS depth
           std::bind(&wrench_observer::cf_pose_subscriber, this, std::placeholders::_1));
 
@@ -156,45 +156,43 @@ public:
       }
 
 
+    void cf_pose_subscriber(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+    {
+        // Pose vector: [x, y, z]
+        global_xyz_meas[0] = msg->pose.position.x;
+        global_xyz_meas[1] = msg->pose.position.y;
+        global_xyz_meas[2] = msg->pose.position.z;
 
-      void cf_pose_subscriber(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
-      {
-          global_xyz_meas[0] = msg->data[0];
-          global_xyz_meas[1] = msg->data[1];
-          global_xyz_meas[2] = msg->data[2];
+        tf2::Quaternion quat(
+            msg->pose.orientation.x,
+            msg->pose.orientation.y,
+            msg->pose.orientation.z,
+            msg->pose.orientation.w
+        );
 
-          tf2::Quaternion quat(
-              msg->data[3],
-              msg->data[4],
-              msg->data[5],
-              msg->data[6]);
+        tf2::Matrix3x3 mat(quat);
+        double roll, pitch, yaw;
+        mat.getRPY(roll, pitch, yaw);
 
-          tf2::Matrix3x3 mat(quat);
-          double roll, pitch, yaw;
-          mat.getRPY(roll, pitch, yaw);
+        // Yaw 불연속 보정
+        double delta_yaw = yaw - prev_yaw;
+        if (delta_yaw > M_PI)
+            yaw_offset -= 2.0 * M_PI;
+        else if (delta_yaw < -M_PI)
+            yaw_offset += 2.0 * M_PI;
 
-          // Yaw 불연속 보정
-          double delta_yaw = yaw - prev_yaw;
-          if (delta_yaw > M_PI) {
-              yaw_offset -= 2.0 * M_PI;  // -360도 보정
-          } else if (delta_yaw < -M_PI) {
-              yaw_offset += 2.0 * M_PI;  // +360도 보정
-          }
-          yaw_continuous = yaw + yaw_offset;  // 연속 yaw 업데이트
-          prev_yaw = yaw;
+        yaw_continuous = yaw + yaw_offset;
+        prev_yaw = yaw;
 
-          // RPY 업데이트
-          body_rpy_meas[0] = roll;
-          body_rpy_meas[1] = pitch;
-          body_rpy_meas[2] = yaw_continuous;  // 보정된 Yaw 사용
+        body_rpy_meas[0] = roll;
+        body_rpy_meas[1] = pitch;
+        body_rpy_meas[2] = yaw_continuous;
 
-          // Rotation matrix 업데이트
-          for (int i = 0; i < 3; ++i) {
-              for (int j = 0; j < 3; ++j) {
-                  R_B(i, j) = mat[i][j];
-              }
-          }
-      }
+        // 회전행렬 업데이트
+        for (int i = 0; i < 3; ++i)
+          for (int j = 0; j < 3; ++j)
+            R_B(i, j) = mat[i][j];
+    }
 
 
 
@@ -435,7 +433,7 @@ public:
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr thrust_publisher_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr global_force_meas_publisher_;
 
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_pose_subscriber_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_acc_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_vel_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_thrust_subscriber_;

@@ -58,7 +58,7 @@ su_fkik() : Node("su_fkik"),
 
 
         // SUBSCIRIBER Group ////////////////////////////////////////////
-        cf_pose_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        cf_pose_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
           "/pen/pose", qos_settings,  // Topic name and QoS depth
           std::bind(&su_fkik::cf_pose_subscriber, this, std::placeholders::_1));
 
@@ -168,18 +168,18 @@ su_fkik() : Node("su_fkik"),
       }
 
 
-    void cf_pose_subscriber(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+    void cf_pose_subscriber(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
     {
-        // Pose vector: [x, y, z, qx, qy, qz, qw]
-        global_xyz_meas[0] = msg->data[0];
-        global_xyz_meas[1] = msg->data[1];
-        global_xyz_meas[2] = msg->data[2];
+        // Pose vector: [x, y, z]
+        global_xyz_meas[0] = msg->pose.position.x;
+        global_xyz_meas[1] = msg->pose.position.y;
+        global_xyz_meas[2] = msg->pose.position.z;
 
         tf2::Quaternion quat(
-            msg->data[3],
-            msg->data[4],
-            msg->data[5],
-            msg->data[6]
+            msg->pose.orientation.x,
+            msg->pose.orientation.y,
+            msg->pose.orientation.z,
+            msg->pose.orientation.w
         );
 
         tf2::Matrix3x3 mat(quat);
@@ -275,7 +275,7 @@ su_fkik() : Node("su_fkik"),
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr global_EE_xyz_vel_publisher_;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr global_xyz_cmd_publisher_;
     rclcpp::Publisher<crazyflie_interfaces::msg::Position>::SharedPtr cf_global_xyzYaw_publisher_;
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_pose_subscriber_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_vel_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr global_EE_cmd_xyzYaw_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_omega_subscriber_;

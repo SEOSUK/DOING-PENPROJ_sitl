@@ -46,13 +46,17 @@ public:
 
 
         //SUBSCRIBER GROUP
-        cf_pose_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-          "/pen/xyzrpy", qos_settings,  // Topic name and QoS depth
+        cf_pose_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+          "/pen/pose", qos_settings,  // Topic name and QoS depth
           std::bind(&su_rviz::cf_pose_subscriber, this, std::placeholders::_1));
 
         cf_vel_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-          "/pen/xyzrpy_vel", qos_settings,
+          "/pen/vel", qos_settings,
           std::bind(&su_rviz::cf_velocity_subscriber, this, std::placeholders::_1));
+          
+        cf_omega_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+          "/pen/omega", qos_settings,
+          std::bind(&su_rviz::cf_omega_subscriber, this, std::placeholders::_1));
 
         global_EE_xyz_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
           "/pen/EE_xyzrpy", qos_settings,
@@ -99,9 +103,9 @@ public:
 
 
 
-        cf_xyz_cmd_tf_publisher();   //Crazyflie position 시각화
+        cf_xyz_cmd_tf_publisher();   //Crazyflie cmd position 시각화
 
-        cf_pose_tf_publisher();   //Crazyflie position 시각화
+        // cf_pose_tf_publisher();   //Crazyflie position 시각화  이거 안쏴도 firmware에서 자동으로 쏴줌
         cf_vel_arrow_publisher();    // crazyflie velocity 시각화
         Normal_vector_estim_arrow_publisher();   //Normal Vector
 
@@ -110,43 +114,63 @@ public:
       }
 
 
-    void cf_pose_subscriber(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
-    {
-      global_xyz_meas[0] = msg->data[0];
-      global_xyz_meas[1] = msg->data[1];
-      global_xyz_meas[2] = msg->data[2];
+      void cf_pose_subscriber(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+      {
+          // Pose vector: [x, y, z]
+          global_xyz_meas[0] = msg->pose.position.x;
+          global_xyz_meas[1] = msg->pose.position.y;
+          global_xyz_meas[2] = msg->pose.position.z;
 
-      body_rpy_meas[0] = msg->data[3];
-      body_rpy_meas[1] = msg->data[4];
-      body_rpy_meas[2] = msg->data[5];
+          global_xyz_quat[0] = msg->pose.orientation.x;
+          global_xyz_quat[1] = msg->pose.orientation.y;
+          global_xyz_quat[2] = msg->pose.orientation.z;
+          global_xyz_quat[3] = msg->pose.orientation.w;
 
-      //body rpy meas 0 1 2 를 기반으로 R_B 생성
-      Eigen::Matrix3d Rz, Ry, Rx;
 
-      Rz << cos(body_rpy_meas[2]), -sin(body_rpy_meas[2]), 0,
-            sin(body_rpy_meas[2]),  cos(body_rpy_meas[2]), 0,
-                 0  ,       0  , 1;
 
-      Ry << cos(body_rpy_meas[1]), 0, sin(body_rpy_meas[1]),
-                   0 , 1,     0,
-           -sin(body_rpy_meas[1]), 0, cos(body_rpy_meas[1]);
+          tf2::Quaternion quat(
+              msg->pose.orientation.x,
+              msg->pose.orientation.y,
+              msg->pose.orientation.z,
+              msg->pose.orientation.w
+          );
 
-      Rx << 1,      0       ,       0,
-            0, cos(body_rpy_meas[0]), -sin(body_rpy_meas[0]),
-            0, sin(body_rpy_meas[0]),  cos(body_rpy_meas[0]);
+          tf2::Matrix3x3 mat(quat);
+          double roll, pitch, yaw;
+          mat.getRPY(roll, pitch, yaw);
 
-      R_B = Rz * Ry * Rx;
-    }
+          // Yaw 불연속 보정
+          double delta_yaw = yaw - prev_yaw;
+          if (delta_yaw > M_PI)
+              yaw_offset -= 2.0 * M_PI;
+          else if (delta_yaw < -M_PI)
+              yaw_offset += 2.0 * M_PI;
+
+          yaw_continuous = yaw + yaw_offset;
+          prev_yaw = yaw;
+
+          body_rpy_meas[0] = roll;
+          body_rpy_meas[1] = pitch;
+          body_rpy_meas[2] = yaw_continuous;
+
+          // 회전행렬 업데이트
+          for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+              R_B(i, j) = mat[i][j];
+      }
 
     void cf_velocity_subscriber(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
       global_xyz_vel_meas[0] = msg->data[0];
       global_xyz_vel_meas[1] = msg->data[1];
       global_xyz_vel_meas[2] = msg->data[2];
-
-      body_omega_meas[0] = msg->data[3];
-      body_omega_meas[1] = msg->data[4];
-      body_omega_meas[2] = msg->data[5];
     }
+
+    void cf_omega_subscriber(const std_msgs::msg::Float64MultiArray::SharedPtr msg){
+      body_omega_meas[0] = msg->data[0];
+      body_omega_meas[1] = msg->data[1];
+      body_omega_meas[2] = msg->data[2];
+    }
+
 
     void global_EE_xyz_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg){
       global_EE_xyz_meas[0] = msg->data[0];
@@ -269,19 +293,25 @@ public:
         transformStamped.header.frame_id = "world";
         transformStamped.child_frame_id = "cf2";
 
+        // 위치 설정
         transformStamped.transform.translation.x = global_xyz_meas[0];
         transformStamped.transform.translation.y = global_xyz_meas[1];
         transformStamped.transform.translation.z = global_xyz_meas[2];
 
-        tf2::Quaternion quat;
-        quat.setRPY(body_rpy_meas[0], body_rpy_meas[1], body_rpy_meas[2]);
+        // 쿼터니언 기반 회전 설정
+        tf2::Quaternion quat(
+            global_xyz_quat[0],
+            global_xyz_quat[1],
+            global_xyz_quat[2],
+            global_xyz_quat[3]
+        );
+
         transformStamped.transform.rotation.x = quat.x();
         transformStamped.transform.rotation.y = quat.y();
         transformStamped.transform.rotation.z = quat.z();
         transformStamped.transform.rotation.w = quat.w();
 
         tf_broadcaster_->sendTransform(transformStamped);
-
     }
 
     void cf_vel_arrow_publisher()
@@ -530,7 +560,7 @@ public:
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr cf_box_marker_publisher_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr normal_vector_hat_publisher_;
 
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_pose_subscriber_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_vel_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr global_EE_xyz_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr global_EE_xyz_vel_subscriber_;
@@ -539,11 +569,15 @@ public:
     rclcpp::Subscription<geometry_msgs::msg::Wrench>::SharedPtr force_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr global_EE_force_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr global_normal_hat_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_omega_subscriber_;
+
+
 
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
 
     Eigen::Vector3d global_xyz_meas;
+    Eigen::VectorXd global_xyz_quat = Eigen::VectorXd::Zero(4);
     Eigen::Vector3d body_rpy_meas;
     Eigen::Vector3d global_rpy_meas;
     Eigen::Vector3d body_omega_meas;
@@ -570,7 +604,7 @@ public:
     bool estimation_flag = false;
 
 
-    double drone_yaw;
+    double drone_yaw, yaw_offset, yaw_continuous, prev_yaw;
 };
 
 int main(int argc, char * argv[]) {

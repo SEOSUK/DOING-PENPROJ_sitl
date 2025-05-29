@@ -41,7 +41,7 @@ public:
 
 
     // Publishers
-    pose_pub_    = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/pose", qos_settings);
+    pose_pub_    = this->create_publisher<geometry_msgs::msg::PoseStamped>("/pen/pose", qos_settings);
     acc_pub_     = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/acc", qos_settings);
     vel_pub_     = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/vel", qos_settings);
     thrust_pub_  = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/thrust", qos_settings);
@@ -57,13 +57,13 @@ private:
   // Callback: Pose
   void cf_pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
-    pose_data_(0) = msg->pose.position.x;
-    pose_data_(1) = msg->pose.position.y;
-    pose_data_(2) = msg->pose.position.z;
-    pose_data_(3) = msg->pose.orientation.x;
-    pose_data_(4) = msg->pose.orientation.y;
-    pose_data_(5) = msg->pose.orientation.z;
-    pose_data_(6) = msg->pose.orientation.w;
+    pose_data_[0] = msg->pose.position.x;
+    pose_data_[1] = msg->pose.position.y;
+    pose_data_[2] = msg->pose.position.z;
+    pose_data_[3] = msg->pose.orientation.x;
+    pose_data_[4] = msg->pose.orientation.y;
+    pose_data_[5] = msg->pose.orientation.z;
+    pose_data_[6] = msg->pose.orientation.w;
   }
 
   // Callback: Acceleration
@@ -98,15 +98,20 @@ private:
   // Timer: Publishing
   void timer_callback()
   {
-    std_msgs::msg::Float64MultiArray pose_msg;
-    pose_msg.data.push_back(pose_data_(0));
-    pose_msg.data.push_back(pose_data_(1));
-    pose_msg.data.push_back(pose_data_(2));
-    pose_msg.data.push_back(pose_data_(3));
-    pose_msg.data.push_back(pose_data_(4));
-    pose_msg.data.push_back(pose_data_(5));
-    pose_msg.data.push_back(pose_data_(6));
+    geometry_msgs::msg::PoseStamped pose_msg;
+    pose_msg.header.stamp = this->get_clock()->now();  // 🟢 타임스탬프 명시
+    pose_msg.header.frame_id = "cf2";  // 🟢 프레임 명시 (TF를 위한 필수값)
+    pose_msg.pose.position.x = pose_data_[0];
+    pose_msg.pose.position.y = pose_data_[1];
+    pose_msg.pose.position.z = pose_data_[2];
+    pose_msg.pose.orientation.x = pose_data_[3];
+    pose_msg.pose.orientation.y = pose_data_[4];
+    pose_msg.pose.orientation.z = pose_data_[5];
+    pose_msg.pose.orientation.w = pose_data_[6];
+
     pose_pub_->publish(pose_msg);
+
+
 
     std_msgs::msg::Float64MultiArray acc_msg;
     acc_msg.data.push_back(acc_data_(0));
@@ -141,7 +146,7 @@ private:
   rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_omega_subscriber_;
 
   // Publishers
-  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pose_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr acc_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr vel_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr thrust_pub_;
@@ -151,7 +156,9 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
 
   // Internal Data (Eigen)
-  Eigen::Matrix<double, 7, 1> pose_data_{Eigen::Matrix<double, 7, 1>::Zero()};
+  Eigen::VectorXd pose_data_ = Eigen::VectorXd::Zero(7);
+
+
   Eigen::Vector3d acc_data_{Eigen::Vector3d::Zero()};
   Eigen::Vector3d vel_data_{Eigen::Vector3d::Zero()};
   Eigen::Vector3d thrust_data_{Eigen::Vector3d::Zero()};

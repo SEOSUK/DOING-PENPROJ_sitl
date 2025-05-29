@@ -34,76 +34,24 @@ robot_types:
       enabled: true
       default_topics:
         pose:
-          frequency: 50
+          frequency: 25
       custom_topics:
-        MJ_stateEstimate_acc:
-          frequency: 100 # Hz
-          vars: [stateEstimate.ax, stateEstimate.ay, stateEstimate.az]
         MJ_velocity:
-          frequency: 100 # Hz
-          vars: [stateEstimate.vx, stateEstimate.vy, stateEstimate.vz]
+          frequency: 25 # Hz
+          vars: ["stateEstimate.vx", "stateEstimate.vy", "stateEstimate.vz"]      
+        MJ_stateEstimate_acc:
+          frequency: 25 # Hz
+          vars: ["stateEstimate.ax", "stateEstimate.ay", "stateEstimate.az"]
         MJ_Command_thrust:
-          frequency: 100 # Hz
+          frequency: 25 # Hz
           vars: [controller.cmd_thrust]
         MJ_omega:
-        frequency: 100 # Hz
-        vars: ["gyro.x", "gyro.y", "gyro.z"]          
+          frequency: 25 # Hz
+          vars: ["gyro.x", "gyro.y", "gyro.z"]
 
-  cf:
-    motion_capture:
-      enabled: true
-      # only if enabled; see motion_capture.yaml
-      marker: cf_mpc
-      dynamics: default
-    big_quad: false
-    battery:
-      voltage_warning: 3.8  # V
-      voltage_critical: 3.7 # V
-    # firmware_params:
-    #   kalman:
-    #     pNAcc_xy: 1.0 # default 0.5
-    firmware_logging:
-      enabled: true
-      default_topics:
-        pose:
-          frequency: 100
-
-  cf_mocap_deck:
-    motion_capture:
-      enabled: true
-      # only if enabled; see motion_capture.yaml
-      marker: mocap_deck
-      dynamics: default
-    big_quad: false
-    battery:
-      voltage_warning: 3.8  # V
-      voltage_critical: 3.7 # V
-
-    # firmware_params:
-    #   kalman:
-    #     pNAcc_xy: 1.0 # default 0.5
 
 # global settings for all robots
 all:
-  # firmware logging for all drones (use robot_types/type_name to set per type, or
-  # robots/drone_name to set per drone)
-  # firmware_logging:
-  #   enabled: false
-  #   default_topics:
-  #    # remove to disable default topic
-  #     pose:
-  #       frequency: 10 # Hz
-      # odom:
-      #   frequency: 100 # Hz
-    # custom_topics:
-    #  topic_name1:
-    #    frequency: 10 # Hz
-    #    vars: ["kalman.stateX", "kalman.stateY", "kalman.stateZ"]
-    #  topic_name2:
-    #    frequency: 1 # Hz
-    #    vars: ["stabilizer.roll", "stabilizer.pitch", "stabilizer.yaw"]
-  # firmware parameters for all drones (use robot_types/type_name to set per type, or
-  # robots/drone_name to set per drone)
   firmware_params:
     commander:
       enHighLevel: 1
@@ -116,5 +64,5 @@ all:
     # kalman:
     #   resetEstimation: 1
   broadcasts:
-    num_repeats: 15 # number of times broadcast commands are repeated
+    num_repeats: 1 # number of times broadcast commands are repeated
     delay_between_repeats_ms: 1 # delay in milliseconds between individual repeats
