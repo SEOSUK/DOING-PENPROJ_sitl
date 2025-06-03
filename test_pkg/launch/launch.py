@@ -4,7 +4,7 @@ from launch.actions import DeclareLaunchArgument, TimerAction, OpaqueFunction, I
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from ament_index_python.packages import get_package_share_directory
-from launch.actions import LogInfo
+from launch.actions import Shutdown
 import os
 import yaml
 
@@ -31,10 +31,11 @@ def launch_setup(context, *args, **kwargs):
     global_params = load_global_params(config_file)
     simulation_enabled = global_params.get('Simulation', False)
 
-    backend_value = LaunchConfiguration('backend')  # <-- 핵심 변경: perform(context) 제거
+    backend_value = LaunchConfiguration('backend')
 
     launch_items = []
 
+    # Crazyflie backend 포함 (sim일 경우만)
     if simulation_enabled:
         crazyflie_launch = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
@@ -43,23 +44,31 @@ def launch_setup(context, *args, **kwargs):
             launch_arguments=[('backend', backend_value)]
         )
         launch_items.append(crazyflie_launch)
-    # cf_communicator node 실행 (crazyflie backend와 함께)
-    cf_communicator_node = Node(
-        package='test_pkg',
-        executable='cf_communicator',
-        name='cf_communicator',
-        parameters=[load_node_params(config_file, 'cf_communicator')],
-        output='screen'
+
+    # cf_communicator vs cf_communicator_sim 선택 실행
+    cf_comm_node_name = 'cf_communicator_sim' if simulation_enabled else 'cf_communicator'
+    cf_comm_node = TimerAction(
+        period=3.0,
+        actions=[
+            Node(
+                package='test_pkg',
+                executable=cf_comm_node_name,
+                name=cf_comm_node_name,
+                parameters=[load_node_params(config_file, cf_comm_node_name)],
+                output='screen',
+                on_exit=Shutdown()
+            )
+        ]
     )
-    launch_items.append(cf_communicator_node)
+    launch_items.append(cf_comm_node)
 
-
+    # wrench node
     if simulation_enabled:
         wrench_node = Node(
             package='test_pkg',
-            executable='wrench_bridge',
-            name='wrench_bridge',
-            parameters=[load_node_params(config_file, 'wrench_bridge')],
+            executable='wrench_observer',
+            name='wrench_observer',
+            parameters=[load_node_params(config_file, 'wrench_observer')],
             output='screen'
         )
     else:
@@ -71,7 +80,7 @@ def launch_setup(context, *args, **kwargs):
             output='screen'
         )
 
-    robot_description = ''
+    # robot_description 설정
     if os.path.exists(urdf_path):
         with open(urdf_path, 'r') as urdf_file:
             robot_description = urdf_file.read()
@@ -86,8 +95,9 @@ def launch_setup(context, *args, **kwargs):
         output='screen'
     )
 
+    # 나머지 delayed 노드
     delayed_nodes = TimerAction(
-        period=2.0,
+        period=3.0,
         actions=[
             Node(
                 package='test_pkg',

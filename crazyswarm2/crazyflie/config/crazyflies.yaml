@@ -34,21 +34,14 @@ robot_types:
       enabled: true
       default_topics:
         pose:
-          frequency: 25
+          frequency: 100
       custom_topics:
         MJ_velocity:
-          frequency: 25 # Hz
-          vars: ["stateEstimate.vx", "stateEstimate.vy", "stateEstimate.vz"]      
-        MJ_stateEstimate_acc:
-          frequency: 25 # Hz
-          vars: ["stateEstimate.ax", "stateEstimate.ay", "stateEstimate.az"]
+          frequency: 100
+          vars: ["kalman.statePX", "kalman.statePY", "kalman.statePZ"]   
         MJ_Command_thrust:
-          frequency: 25 # Hz
+          frequency: 100 # Hz
           vars: [controller.cmd_thrust]
-        MJ_omega:
-          frequency: 25 # Hz
-          vars: ["gyro.x", "gyro.y", "gyro.z"]
-
 
 # global settings for all robots
 all:
@@ -59,8 +52,8 @@ all:
       estimator: 2 # 1: complementary, 2: kalman
       controller: 1 # 1: PID, 2: mellinger
     locSrv:
-      extPosStdDev: 1e-3
-      extQuatStdDev: 0.5e-1
+      extPosStdDev: 0.001
+      extQuatStdDev: 0.05
     # kalman:
     #   resetEstimation: 1
   broadcasts:

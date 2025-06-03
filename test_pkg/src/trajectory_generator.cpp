@@ -100,6 +100,11 @@ private:
     admittance_control();
     surface_trajectory_generation();
 
+
+    double Amp = 0.3;
+    double Freq = 1 / (2 * M_PI);
+    global_des_xyzYaw[0] = Amp * sin (2 * M_PI * Freq * time_real);
+
     data_publish();
   }
 
@@ -107,7 +112,7 @@ private:
   {
     if (global_force_meas.norm() > 0.001)
     {
-      contact_flag = false;
+      contact_flag = false;   // Yaw돌리기!!
     }
     else
     {
@@ -117,7 +122,7 @@ private:
     if (global_force_meas.norm() > 0.001 &&
         global_EE_xyz_vel_meas.norm() > 0.06)
     {
-      estimation_flag = false;
+      estimation_flag = false;  // 추정하기!!
     }
     else
     {
@@ -267,35 +272,35 @@ private:
 
   void keyboard_subsciber_callback(const std_msgs::msg::String::SharedPtr msg)
   {
-      // 입력된 키를 문자열로 가져옴
-      std::string input = msg->data;
+      // // 입력된 키를 문자열로 가져옴
+      // std::string input = msg->data;
 
-        if (!input.empty()) // 입력 값이 비어있지 않을 경우
-        {
-            char input_char = input[0]; // 문자열의 첫 번째 문자만 사용
+      //   if (!input.empty()) // 입력 값이 비어있지 않을 경우
+      //   {
+      //       char input_char = input[0]; // 문자열의 첫 번째 문자만 사용
 
-            if (input_char == 'w') chat_des_vel_xyzYaw[0] += position_delta_cmd[0];
-            else if (input_char == 's') chat_des_vel_xyzYaw[0] -= position_delta_cmd[0];
-            else if (input_char == 'a') chat_des_vel_xyzYaw[1] += position_delta_cmd[1];
-            else if (input_char == 'd') chat_des_vel_xyzYaw[1] -= position_delta_cmd[1];
-            else if (input_char == 'e') chat_des_vel_xyzYaw[2] += position_delta_cmd[2];
-            else if (input_char == 'q') chat_des_vel_xyzYaw[2] -= position_delta_cmd[2];
-            else if (input_char == 'z') chat_des_vel_xyzYaw[3] += position_delta_cmd[3];
-            else if (input_char == 'c') chat_des_vel_xyzYaw[3] -= position_delta_cmd[3];
-            else if (input_char == 'x')
-            {
-              chat_des_vel_xyzYaw[0] = 0;
-              chat_des_vel_xyzYaw[1] = 0;
-              chat_des_vel_xyzYaw[2] = 0;
-              chat_des_vel_xyzYaw[3] = 0;
-            }
-            else if (input_char == 'p')
-            {
-              chat_des_vel_xyzYaw[2] = -1;
-            }
-            else if (input_char == 'j') chat_force_des[0] += force_delta_cmd;
-            else if (input_char == 'k') chat_force_des[0] -= force_delta_cmd;
-          }
+      //       if (input_char == 'w') chat_des_vel_xyzYaw[0] += position_delta_cmd[0];
+      //       else if (input_char == 's') chat_des_vel_xyzYaw[0] -= position_delta_cmd[0];
+      //       else if (input_char == 'a') chat_des_vel_xyzYaw[1] += position_delta_cmd[1];
+      //       else if (input_char == 'd') chat_des_vel_xyzYaw[1] -= position_delta_cmd[1];
+      //       else if (input_char == 'e') chat_des_vel_xyzYaw[2] += position_delta_cmd[2];
+      //       else if (input_char == 'q') chat_des_vel_xyzYaw[2] -= position_delta_cmd[2];
+      //       else if (input_char == 'z') chat_des_vel_xyzYaw[3] += position_delta_cmd[3];
+      //       else if (input_char == 'c') chat_des_vel_xyzYaw[3] -= position_delta_cmd[3];
+      //       else if (input_char == 'x')
+      //       {
+      //         chat_des_vel_xyzYaw[0] = 0;
+      //         chat_des_vel_xyzYaw[1] = 0;
+      //         chat_des_vel_xyzYaw[2] = 0;
+      //         chat_des_vel_xyzYaw[3] = 0;
+      //       }
+      //       else if (input_char == 'p')
+      //       {
+      //         chat_des_vel_xyzYaw[2] = -1;
+      //       }
+      //       else if (input_char == 'j') chat_force_des[0] += force_delta_cmd;
+      //       else if (input_char == 'k') chat_force_des[0] -= force_delta_cmd;
+      //     }
 
     }
 

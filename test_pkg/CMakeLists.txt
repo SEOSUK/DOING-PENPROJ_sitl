@@ -244,6 +244,30 @@ $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 $<INSTALL_INTERFACE:include>
 ${EIGEN3_INCLUDE_DIR}
 )
+
+#CF_COMMUNICATOR_SIM
+add_executable(cf_communicator_sim src/cf_communicator_sim.cpp src/ButterworthFilter.cpp)
+ament_target_dependencies(cf_communicator_sim
+  rclcpp
+  geometry_msgs
+  std_msgs
+  tf2
+  tf2_ros
+  crazyflie_interfaces
+)
+
+install(TARGETS
+  cf_communicator_sim
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+target_include_directories(cf_communicator_sim PUBLIC
+$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+$<INSTALL_INTERFACE:include>
+${EIGEN3_INCLUDE_DIR}
+)
+
+target_link_libraries(cf_communicator_sim ButterworthFilter)
 # PX4_PLAYER
 add_executable(px4_player src/for_px4/px4_player.cpp)
 ament_target_dependencies(px4_player

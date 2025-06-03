@@ -6,14 +6,14 @@ global_config:
 su_fkik:
   ros__parameters:
     End_Effector_Offset: [0.075, 0.0, 0.02]
-    control_loop_hz: 100.0
+    control_loop_hz: 200.0
     numerical_calc_loop_hz: 50.0
 
 trajectory_generator:
   ros__parameters:
     position_delta_cmd: [0.1, 0.1, 0.1, 0.1]
     force_delta_cmd: 0.003
-    control_loop_hz: 100.0
+    control_loop_hz: 200.0
     numerical_calc_loop_hz: 50.0
     force_lpf_cof: 3.0
     normal_vector_estimator_lpf_cof: 3.0
@@ -29,9 +29,9 @@ wrench_bridge:
     
 wrench_observer:
   ros__parameters:
-    control_loop_hz: 100.0
-    Momentum_of_inertia_vec: [0.1, 0.1, 0.1]
-    mass: 0.04
+    control_loop_hz: 200.0
+    Momentum_of_inertia_vec: [0.1, 0.1, 0.1] #DOB Scale Factor
+    mass: 0.047                              #DOB Scale Factor        
     force_dob_fc: 5.0
     Tau_dob_fc: 5.0
     com_offset: [0.1, 0.1, 0.1]
@@ -39,3 +39,11 @@ wrench_observer:
 su_rviz:
   ros__parameters:
     use_sim_time: true  # 예시로 하나라도 있어야 함
+
+cf_communicator:
+  ros__parameters:
+    control_loop_hz: 100.0
+
+cf_communicator_sim:
+  ros__parameters:
+    control_loop_hz: 50.0

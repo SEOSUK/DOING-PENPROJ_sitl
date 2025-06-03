@@ -203,7 +203,7 @@ public:
         return;
       }
       Thrust[2] = msg->data[0];
-      global_command_Force = R_B * Thrust / 1000000.0;
+      global_command_Force = R_B * Thrust / 100000.0;
     }
 
     
@@ -329,7 +329,7 @@ public:
     state_MinvQ_Fz_1nd += state_MinvQ_dot_Fz_1nd / control_loop_hz;
     Nominal_Force_1nd[2] = MinvQ_C_F_1nd(0,0) * state_MinvQ_Fz_1nd;
 
-    // Filtered Side (input: command force)
+    // Filtered Side (input: command force
     state_Q_dot_Fx_1nd = Q_A_F_1nd(0,0) * state_Q_Fx_1nd + Q_B_F_1nd(0,0) * global_command_Force[0];
     state_Q_Fx_1nd += state_Q_dot_Fx_1nd / control_loop_hz;
     Filtered_Force_1nd[0] = Q_C_F_1nd(0,0) * state_Q_Fx_1nd;
@@ -340,7 +340,7 @@ public:
 
     state_Q_dot_Fz_1nd = Q_A_F_1nd(0,0) * state_Q_Fz_1nd + Q_B_F_1nd(0,0) * global_command_Force[2];
     state_Q_Fz_1nd += state_Q_dot_Fz_1nd / control_loop_hz;
-    Filtered_Force_1nd[2] = Q_C_F_1nd(0,0) * state_Q_Fz_1nd;
+    Filtered_Force_1nd[2] = Q_C_F_1nd(0,0) * state_Q_Fz_1nd - mass;
 
     // Final estimation
     global_force_hat = Nominal_Force_1nd - Filtered_Force_1nd;

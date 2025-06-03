@@ -281,7 +281,7 @@ public:
 
         end_point.x = start_point.x + desired_acceleration[0];
         end_point.y = start_point.y + desired_acceleration[1];
-        end_point.z = start_point.z + desired_acceleration[2] + 80;
+        end_point.z = start_point.z + desired_acceleration[2];
 
         marker.points.push_back(start_point);
         marker.points.push_back(end_point);

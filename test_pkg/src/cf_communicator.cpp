@@ -7,6 +7,7 @@
 #include <cmath>
 
 using std::placeholders::_1;
+using namespace std::chrono_literals;
 
 class CfCommunicator : public rclcpp::Node
 {
@@ -17,6 +18,9 @@ public:
     rclcpp::QoS qos_settings = rclcpp::QoS(rclcpp::KeepLast(10))
                                   .reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE)
                                   .durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
+
+    control_loop_hz = this->declare_parameter<double>("control_loop_hz", 100.0);
+    auto control_loop_period = std::chrono::duration<double>(1.0 / control_loop_hz);
 
     // Subscribers
     cf_pose_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
@@ -47,10 +51,10 @@ public:
     thrust_pub_  = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/thrust", qos_settings);
     omega_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/omega", qos_settings);
 
-    // Timer: 200Hz
+    // Timer: 100Hz
     timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(5),
-      std::bind(&CfCommunicator::timer_callback, this));
+      control_loop_period, std::bind(&CfCommunicator::timer_callback, this));
+
   }
 
 private:
@@ -136,6 +140,33 @@ private:
     omega_msg.data.push_back(omega_data_(1));
     omega_msg.data.push_back(omega_data_(2));
     omega_pub_->publish(omega_msg);    
+
+
+    
+  // ✅ 상태 출력 추가 (topic echo 느낌)
+  RCLCPP_INFO(this->get_logger(),
+              "POSE   [%.3f %.3f %.3f] [%.3f %.3f %.3f %.3f]",
+              pose_data_[0], pose_data_[1], pose_data_[2],
+              pose_data_[3], pose_data_[4], pose_data_[5], pose_data_[6]);
+
+  RCLCPP_INFO(this->get_logger(),
+              "ACC    [%.3f %.3f %.3f]",
+              acc_data_(0), acc_data_(1), acc_data_(2));
+
+  RCLCPP_INFO(this->get_logger(),
+              "VEL    [%.3f %.3f %.3f]",
+              vel_data_(0), vel_data_(1), vel_data_(2));
+
+  RCLCPP_INFO(this->get_logger(),
+              "THRUST [%.3f %.3f %.3f]",
+              thrust_data_(0), thrust_data_(1), thrust_data_(2));
+
+  RCLCPP_INFO(this->get_logger(),
+              "OMEGA  [%.3f %.3f %.3f] (rad/s)",
+              omega_data_(0), omega_data_(1), omega_data_(2));
+
+
+
   }
 
   // Subscribers
@@ -164,6 +195,7 @@ private:
   Eigen::Vector3d thrust_data_{Eigen::Vector3d::Zero()};
   Eigen::Vector3d omega_data_{Eigen::Vector3d::Zero()};
 
+  double control_loop_hz, control_loop_period;
 };
 
 int main(int argc, char *argv[])
