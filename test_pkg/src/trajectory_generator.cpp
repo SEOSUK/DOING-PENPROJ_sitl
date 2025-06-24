@@ -32,6 +32,8 @@ trajectory_generator()
     auto control_loop_period = std::chrono::duration<double>(1.0 / control_loop_hz);
     numerical_calc_loop_hz = this->declare_parameter<double>("numerical_calc_loop_hz", 100.0);
     auto numerical_calc_loop_period = std::chrono::duration<double>(1.0 / numerical_calc_loop_hz);
+    surface_tracking_Flag = this->declare_parameter<bool>("surface_tracking", true);
+
 
     force_delta_cmd = this->declare_parameter<double>("force_delta_cmd", 0.003);
     std::vector<double> position_delta = this->declare_parameter<std::vector<double>>("position_delta_cmd", {0.1, 0.1, 0.1, 0.1});
@@ -100,34 +102,40 @@ private:
     admittance_control();
     surface_trajectory_generation();
 
-
-    double Amp = 0.3;
-    double Freq = 1 / (2 * M_PI);
-    global_des_xyzYaw[0] = Amp * sin (2 * M_PI * Freq * time_real);
-
     data_publish();
   }
 
   void contact_check()
   {
-    if (global_force_meas.norm() > 0.001)
-    {
-      contact_flag = false;   // Yaw돌리기!!
-    }
-    else
+    
+    if (!surface_tracking_Flag)
     {
       contact_flag = false;
     }
-
-    if (global_force_meas.norm() > 0.001 &&
-        global_EE_xyz_vel_meas.norm() > 0.06)
-    {
-      estimation_flag = false;  // 추정하기!!
-    }
     else
     {
-      estimation_flag = false;
+      if (global_force_meas.norm() > 0.001 &&   // 접촉 threshold
+          global_EE_xyz_vel_meas.norm() > 0.06)
+      {
+        contact_flag = true;   // Surface Projection 할지말지
+      }
+      else
+      {
+        contact_flag = false;
+      }
     }
+
+      if (global_force_meas.norm() > 0.001 &&   // 접촉 threshold
+          global_EE_xyz_vel_meas.norm() > 0.06)
+      {
+        estimation_flag = true;  // 법벡추
+      }
+      else
+      {
+        estimation_flag = false;
+      }
+
+
   }
 
   void normal_vector_estimation()
@@ -273,34 +281,34 @@ private:
   void keyboard_subsciber_callback(const std_msgs::msg::String::SharedPtr msg)
   {
       // // 입력된 키를 문자열로 가져옴
-      // std::string input = msg->data;
+      std::string input = msg->data;
 
-      //   if (!input.empty()) // 입력 값이 비어있지 않을 경우
-      //   {
-      //       char input_char = input[0]; // 문자열의 첫 번째 문자만 사용
+        if (!input.empty()) // 입력 값이 비어있지 않을 경우
+        {
+            char input_char = input[0]; // 문자열의 첫 번째 문자만 사용
 
-      //       if (input_char == 'w') chat_des_vel_xyzYaw[0] += position_delta_cmd[0];
-      //       else if (input_char == 's') chat_des_vel_xyzYaw[0] -= position_delta_cmd[0];
-      //       else if (input_char == 'a') chat_des_vel_xyzYaw[1] += position_delta_cmd[1];
-      //       else if (input_char == 'd') chat_des_vel_xyzYaw[1] -= position_delta_cmd[1];
-      //       else if (input_char == 'e') chat_des_vel_xyzYaw[2] += position_delta_cmd[2];
-      //       else if (input_char == 'q') chat_des_vel_xyzYaw[2] -= position_delta_cmd[2];
-      //       else if (input_char == 'z') chat_des_vel_xyzYaw[3] += position_delta_cmd[3];
-      //       else if (input_char == 'c') chat_des_vel_xyzYaw[3] -= position_delta_cmd[3];
-      //       else if (input_char == 'x')
-      //       {
-      //         chat_des_vel_xyzYaw[0] = 0;
-      //         chat_des_vel_xyzYaw[1] = 0;
-      //         chat_des_vel_xyzYaw[2] = 0;
-      //         chat_des_vel_xyzYaw[3] = 0;
-      //       }
-      //       else if (input_char == 'p')
-      //       {
-      //         chat_des_vel_xyzYaw[2] = -1;
-      //       }
-      //       else if (input_char == 'j') chat_force_des[0] += force_delta_cmd;
-      //       else if (input_char == 'k') chat_force_des[0] -= force_delta_cmd;
-      //     }
+            if (input_char == 'w') chat_des_vel_xyzYaw[0] += position_delta_cmd[0];
+            else if (input_char == 's') chat_des_vel_xyzYaw[0] -= position_delta_cmd[0];
+            else if (input_char == 'a') chat_des_vel_xyzYaw[1] += position_delta_cmd[1];
+            else if (input_char == 'd') chat_des_vel_xyzYaw[1] -= position_delta_cmd[1];
+            else if (input_char == 'e') chat_des_vel_xyzYaw[2] += position_delta_cmd[2];
+            else if (input_char == 'q') chat_des_vel_xyzYaw[2] -= position_delta_cmd[2];
+            else if (input_char == 'z') chat_des_vel_xyzYaw[3] += position_delta_cmd[3];
+            else if (input_char == 'c') chat_des_vel_xyzYaw[3] -= position_delta_cmd[3];
+            else if (input_char == 'x')
+            {
+              chat_des_vel_xyzYaw[0] = 0;
+              chat_des_vel_xyzYaw[1] = 0;
+              chat_des_vel_xyzYaw[2] = 0;
+              chat_des_vel_xyzYaw[3] = 0;
+            }
+            else if (input_char == 'p')
+            {
+              chat_des_vel_xyzYaw[2] = -1;
+            }
+            else if (input_char == 'j') chat_force_des[0] += force_delta_cmd;
+            else if (input_char == 'k') chat_force_des[0] -= force_delta_cmd;
+          }
 
     }
 
@@ -416,7 +424,7 @@ private:
 
   bool contact_flag = false;
   bool estimation_flag = false;
-
+  bool surface_tracking_Flag = false;
   Eigen::Matrix3d virtual_damper = (Eigen::Vector3d(5, 0, 0)).asDiagonal();
   Eigen::Matrix3d virtual_spring = (Eigen::Vector3d(0.1, 0, 0)).asDiagonal();
 

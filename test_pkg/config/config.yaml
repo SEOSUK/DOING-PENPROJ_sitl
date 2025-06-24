@@ -17,6 +17,7 @@ trajectory_generator:
     numerical_calc_loop_hz: 50.0
     force_lpf_cof: 3.0
     normal_vector_estimator_lpf_cof: 3.0
+    surface_tracking: false
 
 data_decryptor:
   ros__parameters:
