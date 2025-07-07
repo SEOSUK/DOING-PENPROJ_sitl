@@ -268,49 +268,6 @@ ${EIGEN3_INCLUDE_DIR}
 )
 
 target_link_libraries(cf_communicator_sim ButterworthFilter)
-# PX4_PLAYER
-add_executable(px4_player src/for_px4/px4_player.cpp)
-ament_target_dependencies(px4_player
-  rclcpp
-  std_msgs
-  geometry_msgs
-  turtlesim
-)
-
-install(TARGETS
-px4_player
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-target_include_directories(px4_player PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-
-# PX4_RVIZ
-add_executable(px4_rviz src/for_px4/px4_rviz.cpp)
-ament_target_dependencies(px4_rviz
-rclcpp
-std_msgs
-sensor_msgs
-geometry_msgs
-tf2
-tf2_ros
-visualization_msgs
-)
-
-
-install(TARGETS
-px4_rviz
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-target_include_directories(px4_rviz PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
 
 # WRENCH_OBSERVER
 add_executable(wrench_observer src/wrench_observer.cpp)
