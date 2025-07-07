@@ -7,7 +7,7 @@ This page shows tutorials which connects the Crazyflie through Crazyswarm2 to wi
 
 
 .. warning::
-  These tutorials are for advanced use and still under development. Beware of errors and bugs and be sure to use https://github.com/IMRCLab/crazyswarm2/discussions for any support questions.
+  These tutorials are for advanced use and still under development. Beware of errors and bugs and be sure to use https://github.com/IMRCLab/crazyswarm2/discussions for any support questions. Also this requires a bit of knowledge for ROS 2 so we highly recommend following `their beginner tutorials <https://docs.ros.org/en/humble/Tutorials/Beginner-CLI-Tools.html>`_.
 
 
 
@@ -17,9 +17,17 @@ Teleoperation keyboard
 We have an example of the telop_twist_keyboard package working together with the crazyflie
 
 First, make sure that the crazyflies.yaml has the right URI and if you are using the `Flow deck <https://www.bitcraze.io/products/flow-deck-v2/>`_ or `any other position system available <https://www.bitcraze.io/documentation/system/positioning//>`_ to the crazyflie.  
-set the controller to 1 (PID)
+set the controller to 1 (PID). 
 
-Then, run the following launch file to start up the crazyflie server (CFlib):
+And if you  have not already, install the teleop package for the keyboard. (replace DISTRO with humble or iron):
+
+.. code-block:: bash
+
+    sudo apt-get install ros-DISTRO-teleop-twist-keyboard
+
+Then, first checkout keyboard_velmux_launch.py and make sure that the 'robot_prefix' of vel_mux matches your crazyflie ID in crazyfies.yaml ('cf231').
+
+Then run the following launch file to start up the crazyflie server (CFlib):
 
 .. code-block:: bash
 
@@ -81,6 +89,46 @@ Here you can see an example of 5 crazyflies with the Pose default topic enabled,
         <iframe src="https://www.youtube.com/embed/w99hLldcSp4" frameborder="0" allowfullscreen style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></iframe>
     </div>
 
+Mapping with simple mapper
+--------------------------
+
+If you have a crazyflie with a multiranger and flowdeck, you can try out some simple mapping.
+
+Make sure that the scan and odometry logging is enabled in crazyflies.yaml:
+
+.. code-block:: bash
+
+  firmware_logging:
+    enabled: true
+    default_topics:
+      odom:
+        frequency: 10 # Hz
+      scan:
+        frequency: 10 # Hz
+
+and make sure that the pid controller and kalman filter is enabled:
+
+.. code-block:: bash
+
+  firmware_params:
+    stabilizer:
+      estimator: 2 # 1: complementary, 2: kalman
+      controller: 1 # 1: PID, 2: mellinger
+
+If you are using a different name for your crazyflie, make sure to change the following in the example launch file (multiranger_simple_mapper_launch.py):
+
+.. code-block:: bash
+
+    crazyflie_name = '/cf231'
+
+Then start the simple mapper example launch file:
+
+.. code-block:: bash
+
+    ros2 launch crazyflie_examples multiranger_simple_mapper_launch.py
+
+And watch the mapping happening in rviz2 while controlling the crazyflie with the teleop node (see the sections above).
+
 Mapping with the SLAM toolbox
 -----------------------------
 
@@ -98,7 +146,7 @@ Assuming you have installed ROS 2 and Crazyswarm2 according to the instructions 
 
 .. code-block:: bash
 
-    sudo apt-get install ros-galactic-slam-toolbox
+    sudo apt-get install ros-DISTRO-slam-toolbox
 
 Go to crazyflie/config/crazyflie.yaml, change the URI of the crazyflie to the one yours has and put the crazyflies you don't use on 'enabled: false':
 
@@ -221,7 +269,7 @@ Now, open up a  rviv2 window in a seperate terminal with :
 
 .. code-block:: bash
 
-    source /opt/ros/galactic/setup.bash
+    source /opt/ros/DISTRO/setup.bash
     rviz2
 
 Add the following displays and panels to RVIZ:
@@ -243,7 +291,7 @@ While still connected to the crazyflie with the server, open another terminal an
 
 .. code-block:: bash
 
-    source /opt/ros/galactic/setup.bash
+    source /opt/ros/DISTRO/setup.bash
     ros2 run teleop_twist_keyboard teleop_twist_keyboard
 
 and make the crazyflie take off with the 't' key on your keyboard. Now fly around the room to make a map of it.
@@ -283,7 +331,7 @@ Next, install the Navigation2 Bringup package:
 
 .. code-block:: bash
 
-  sudo apt-get install ros-galactic-nav2-bringup
+  sudo apt-get install ros-DISTRO-nav2-bringup
 
 Looking at the Launch file
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

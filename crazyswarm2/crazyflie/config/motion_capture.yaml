@@ -1,9 +1,9 @@
 /motion_capture_tracking:
   ros__parameters:
-    type: "vicon"
-    hostname: "192.168.1.50"
-
-    mode: "libobjecttracker" # one of motionCapture,libRigidBodyTracker
+    # one of "optitrack", "optitrack_closed_source", "vicon", "qualisys", "nokov", "vrpn", "motionanalysis"
+    type: "optitrack"
+    # Specify the hostname or IP of the computer running the motion capture software
+    hostname: "141.23.110.143"
 
     topics:
       poses:
@@ -23,13 +23,6 @@
         offset: [0.0, -0.01, -0.04]
         points:
           p0: [0.0177184,0.0139654,0.0557585]
-      cf_mpc:
-        offset: [0.0, 0.0, 0.0]
-        points:
-          p0: [0.0283, 0.0, 0.0] #front
-          p1: [0.0, -0.0216, 0.0] #right
-          p2: [-0.02376, 0.0, 0.0] #back
-          p3: [0.0, 0.0241, 0.0] #left
       mocap_deck:
         offset: [0.0, 0.0, -0.01]
         points:

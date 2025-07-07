@@ -1,11 +1,10 @@
 """Takeoff-hover-land for one CF. Useful to validate hardware config."""
 
-# from pycrazyswarm import Crazyswarm
 from crazyflie_py import Crazyswarm
 
 
 TAKEOFF_DURATION = 2.5
-HOVER_DURATION = 30.0
+HOVER_DURATION = 5.0
 
 
 def main():
@@ -19,5 +18,5 @@ def main():
     timeHelper.sleep(TAKEOFF_DURATION)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

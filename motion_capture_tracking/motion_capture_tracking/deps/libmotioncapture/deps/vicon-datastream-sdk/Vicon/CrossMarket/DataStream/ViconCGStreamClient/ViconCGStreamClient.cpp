@@ -2,7 +2,7 @@
 //////////////////////////////////////////////////////////////////////////////////
 // MIT License
 //
-// Copyright (c) 2017 Vicon Motion Systems Ltd
+// Copyright (c) 2020 Vicon Motion Systems Ltd
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -169,6 +169,12 @@ ViconCGStream::VVideoFrame& VDynamicObjects::AddVideoFrame()
   return *m_VideoFrames.back();
 }
 
+ViconCGStream::VDynamicCameraCalibrationInfo& VDynamicObjects::AddDynamicCameraCalibrationInfo()
+{
+  m_DynamicCameraCalibrationInfo.resize( m_DynamicCameraCalibrationInfo.size() + 1 );
+  return m_DynamicCameraCalibrationInfo.back();
+}
+
 void VDynamicObjects::AddNetworkLatencyInfo( double i_Value )
 {
   ViconCGStreamDetail::VLatencyInfo_Sample NetworkLatencySample;
@@ -328,9 +334,10 @@ VViconCGStreamClient::VViconCGStreamClient( std::weak_ptr< IViconCGStreamClientC
 , m_bHapticChanged( false )
 , m_bFilterChanged( false )
 , m_bPingChanged( false )
+, m_PingID( 0 ) 
 , m_VideoHint( EPassThrough )
 {
-  m_pSocket.reset( new boost::asio::ip::tcp::socket( m_Service ) );
+  m_pSocket.reset( new boost::asio::ip::tcp::socket( m_IOContext ) );
 }
 
 VViconCGStreamClient::~VViconCGStreamClient()
@@ -339,35 +346,33 @@ VViconCGStreamClient::~VViconCGStreamClient()
   CloseLog();
 }
 
-void VViconCGStreamClient::Connect( const std::string& i_rHost, unsigned short i_Port )
+bool VViconCGStreamClient::Connect( const std::string& i_rHost, unsigned short i_Port )
 {
   if( m_pMulticastSocket )
   {
-    return;
+    // Ok, just nothing to do.
+    return true;
   }
 
   const std::string::size_type AtPos = i_rHost.find_first_of('@');
   const std::string Host = i_rHost.substr(0, AtPos);
   const std::string Adapter = AtPos == std::string::npos ? "" : i_rHost.substr( AtPos + 1 );
 
-  boost::asio::ip::tcp::resolver Resolver( m_Service );
-  boost::asio::ip::tcp::resolver::query Query( Host, "" );
+  boost::asio::ip::tcp::resolver Resolver( m_IOContext );
 
   boost::system::error_code Error;
-  boost::asio::ip::tcp::resolver::iterator It = Resolver.resolve( Query, Error );
-  boost::asio::ip::tcp::resolver::iterator End;
+  boost::asio::ip::tcp::resolver::results_type endpoints = Resolver.resolve( Host, "", Error );
 
   if( Error )
   {
     OnDisconnect();
-    return;
+    return false;
   }
 
-  bool bConnected = false;
-  for( ; It != End; ++It )
+  for(auto& endpoint : endpoints)
   {
     Error = boost::system::error_code();
-    boost::asio::ip::tcp::endpoint EndPoint( *It );
+    boost::asio::ip::tcp::endpoint EndPoint( endpoint );
 
     // Currently we only handle IPv4
     // This has to be explicitly handled, otherwise the socket can bind to a v6 endpoint and then fail
@@ -391,8 +396,7 @@ void VViconCGStreamClient::Connect( const std::string& i_rHost, unsigned short i
     }
     if( !Error && !Adapter.empty() )
     {
-      boost::asio::ip::address_v4 AdapterAddress;
-      AdapterAddress.from_string( Adapter, Error );
+      boost::asio::ip::address_v4 AdapterAddress = boost::asio::ip::make_address_v4(Adapter, Error);
       if( !Error )
       {
         const boost::asio::ip::tcp::endpoint AdapterEndPoint( AdapterAddress, 0 );
@@ -409,38 +413,29 @@ void VViconCGStreamClient::Connect( const std::string& i_rHost, unsigned short i
       Error = LocalError;
 #endif
     }
-    if( !Error )
-    {
-      m_pSocket->connect( EndPoint, Error );
-    }
 
-    if( Error )
-    {
-      m_pSocket->close();
-      std::stringstream Strm;
-      Strm << Error;
-      std::string ErrorText = Strm.str();
-      // std::cerr << Error << std::endl;
-    }
     if( !Error )
     {
-      bConnected = true;
       m_HostName = i_rHost;
+      m_EndPoint = EndPoint;
       break;
     }
+
   }
 
-  if( bConnected )
+  if (Error)
   {
-    OnConnect();
-  }
-  else
-  {
-    OnDisconnect();
-    return;
+    m_pSocket->close();
+    std::stringstream Strm;
+    Strm << Error;
+    std::string ErrorText = Strm.str();
+    // std::cerr << Error << std::endl;
+    return false;
   }
 
   m_pClientThread.reset( new boost::thread( std::bind( &VViconCGStreamClient::ClientThread, this ) ) );
+
+  return true;
 }
 
 void VViconCGStreamClient::Disconnect()
@@ -478,14 +473,14 @@ void VViconCGStreamClient::ReceiveMulticastData( std::string i_MulticastIPAddres
     Disconnect();
   }
 
-  if( !MulticastAddress.is_multicast() && ( MulticastAddress.to_ulong() != 0xFFFFFFFF ) )
+  if( !MulticastAddress.is_multicast() && ( MulticastAddress.to_uint() != 0xFFFFFFFF ) )
   {
     OnDisconnect();
     return;
   }
 
   std::shared_ptr< boost::asio::ip::udp::socket > pMulticastSocket(
-    new boost::asio::ip::udp::socket( m_Service, LocalEndpoint.protocol() ) );
+    new boost::asio::ip::udp::socket( m_IOContext, LocalEndpoint.protocol() ) );
   if( Error )
   {
     OnDisconnect();
@@ -652,8 +647,8 @@ void VViconCGStreamClient::SetServerToTransmitMulticast( std::string i_Multicast
     boost::asio::ip::address_v4 MulticastAddress = FirstV4AddressFromString( i_MulticastIPAddress );
     boost::asio::ip::address_v4 ServerAddress = FirstV4AddressFromString( i_ServerIPAddress );
 
-    RequestMulticast.m_MulticastIpAddress = static_cast< ViconCGStreamType::UInt32 >( MulticastAddress.to_ulong() );
-    RequestMulticast.m_SourceIpAddress = static_cast< ViconCGStreamType::UInt32 >( ServerAddress.to_ulong() );
+    RequestMulticast.m_MulticastIpAddress = static_cast< ViconCGStreamType::UInt32 >( MulticastAddress.to_uint() );
+    RequestMulticast.m_SourceIpAddress = static_cast< ViconCGStreamType::UInt32 >( ServerAddress.to_uint() );
     RequestMulticast.m_Port = i_Port;
 
     Objects.Write( RequestMulticast );
@@ -753,6 +748,23 @@ static void Intersect( ViconCGStream::VObjectEnums& i_rServer, ViconCGStream::VO
 
 void VViconCGStreamClient::ClientThread()
 {
+
+  boost::system::error_code Error;
+
+  m_pSocket->connect( m_EndPoint, Error );
+
+  if( Error )
+  {
+    m_pSocket->close();
+    // OnDisconnect();
+    return;
+  }
+  else
+  {
+    //bConnected = true;
+    OnConnect();
+  }
+
   m_pStaticObjects.reset();
   m_pDynamicObjects.reset();
 
@@ -1008,6 +1020,9 @@ void VViconCGStreamClient::CopyObjects( const ViconCGStream::VContents& i_rConte
       break;
     case ViconCGStreamEnum::CameraWand3d:
       o_rDynamicObjects.m_CameraWand3d = i_rDynamicObjects.m_CameraWand3d;
+      break;
+    case ViconCGStreamEnum::DynamicCameraCalibrationInfo:
+      o_rDynamicObjects.m_DynamicCameraCalibrationInfo = i_rDynamicObjects.m_DynamicCameraCalibrationInfo;
       break;
     case ViconCGStreamEnum::VideoFrame:
       o_rDynamicObjects.m_VideoFrames = i_rDynamicObjects.m_VideoFrames;
@@ -1484,6 +1499,15 @@ bool VViconCGStreamClient::ReadObjects( VCGStreamReaderWriter& i_rReaderWriter )
       }
       break;
     }
+    case ViconCGStreamEnum::DynamicCameraCalibrationInfo:
+      if( !pDynamicObjects )
+        pDynamicObjects.reset( new VDynamicObjects() );
+      if( !Object.Read( pDynamicObjects->AddDynamicCameraCalibrationInfo() ) )
+      {
+        return false;
+      }
+
+      break;
     }
   }
 
@@ -1603,24 +1627,22 @@ void VViconCGStreamClient::TimingLogFunction( const unsigned int i_FrameNumber, 
 boost::asio::ip::address_v4 VViconCGStreamClient::FirstV4AddressFromString( const std::string& i_rAddress )
 {
   boost::system::error_code Error;
-  boost::asio::ip::address_v4 Address = boost::asio::ip::address_v4::from_string( i_rAddress, Error );
+  boost::asio::ip::address_v4 Address = boost::asio::ip::make_address_v4( i_rAddress, Error );
   if( !Error )
   {
     return Address;
   }
 
-  boost::asio::ip::tcp::resolver Resolver( m_Service );
-  boost::asio::ip::tcp::resolver::query Query( i_rAddress, "" );
+  boost::asio::ip::tcp::resolver Resolver( m_IOContext );
 
-  boost::asio::ip::tcp::resolver::iterator It = Resolver.resolve( Query, Error );
-  boost::asio::ip::tcp::resolver::iterator End;
+  boost::asio::ip::tcp::resolver::results_type endpoints = Resolver.resolve( i_rAddress, "", Error );
 
   if( !Error )
   {
-    for( ; It != End; ++It )
+    for(auto& endpoint : endpoints)
     {
       Error = boost::system::error_code();
-      boost::asio::ip::tcp::endpoint EndPoint( *It );
+      boost::asio::ip::tcp::endpoint EndPoint( endpoint );
 
       // Currently we only handle IPv4
       if( EndPoint.address().is_v4() )

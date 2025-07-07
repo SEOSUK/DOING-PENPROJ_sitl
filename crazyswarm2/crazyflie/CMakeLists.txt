@@ -85,6 +85,7 @@ ament_target_dependencies(crazyflie_server
 # Install C++ executables
 install(TARGETS
   # crazyflie_tools
+  comCheck
   scan
   listParams
   listLogVariables
@@ -95,6 +96,7 @@ install(TARGETS
   console
   log
   setParam
+  downloadUSDLogfile
   #
   teleop
   crazyflie_server
@@ -106,13 +108,18 @@ install(PROGRAMS
   scripts/chooser.py
   scripts/vel_mux.py
   scripts/cfmult.py
+  scripts/simple_mapper_multiranger.py
+  scripts/aideck_streamer.py
+  scripts/gui.py
+  scripts/flash.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install launch and config files.
+# Install launch, config, and urdf files.
 install(DIRECTORY
   launch
   config
+  urdf
   DESTINATION share/${PROJECT_NAME}/
 )
 

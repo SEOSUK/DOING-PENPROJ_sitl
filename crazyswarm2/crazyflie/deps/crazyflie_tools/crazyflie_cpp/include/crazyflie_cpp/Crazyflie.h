@@ -131,11 +131,18 @@ public:
   static std::vector<std::string> scan(
     uint64_t address = 0xE7E7E7E7E7);
 
+  // returns the URI that can be used for broadcast communication (or empty string if there is none)
+  static std::string broadcastUriFromUnicastUri(const std::string& link_uri);
+
   const bitcraze::crazyflieLinkCpp::Connection::Statistics connectionStats() const
   {
     return m_connection.statistics();
   }
 
+  bitcraze::crazyflieLinkCpp::Connection::Statistics connectionStatsDelta()
+  {
+    return m_connection.statisticsDelta();
+  }
 
   // returns the URI for this Crazyflie
   std::string uri() const;
@@ -151,6 +158,9 @@ public:
   std::string getFirmwareVersion();
 
   std::string getDeviceTypeName();
+
+  void sendArmingRequest(bool arm);
+
   void logReset();
 
   void sendSetpoint(
@@ -199,7 +209,7 @@ public:
     float qx, float qy, float qz, float qw);
 
   void sendPing();
-  void spin_once();
+  void processAllPackets();
   void reboot();
 #if 0
   // returns new address
@@ -365,11 +375,18 @@ public:
     bool reversed = false,
     bool relative = true,
     uint8_t groupMask = 0);
-#if 0
+
   // Memory subsystem
   void readUSDLogFile(
     std::vector<uint8_t>& data);
-#endif
+
+  // latency measurements
+  void setLatencyCallback(
+    std::function<void(uint64_t)> cb) {
+    m_latencyCallback = cb;
+  }
+  void triggerLatencyMeasurement();
+
 private:
   bitcraze::crazyflieLinkCpp::Packet waitForResponse(
       std::function<bool(const bitcraze::crazyflieLinkCpp::Packet&)> condition);
@@ -460,6 +477,12 @@ private:
   Logger& m_logger;
 
   bitcraze::crazyflieLinkCpp::Connection m_connection;
+
+  // latency measurements
+  std::chrono::time_point<std::chrono::steady_clock> m_clock_start;
+  std::function<void(uint64_t)> m_latencyCallback;
+  uint32_t m_latencyCounter;
+
 };
 
 template<class T>
@@ -729,10 +752,22 @@ public:
   CrazyflieBroadcaster(
     const std::string& link_uri);
 
+  const std::string& uri() const
+  {
+    return m_connection.uri();
+  }
+
   const bitcraze::crazyflieLinkCpp::Connection::Statistics connectionStats() const
   {
     return m_connection.statistics();
   }
+
+  bitcraze::crazyflieLinkCpp::Connection::Statistics connectionStatsDelta()
+  {
+    return m_connection.statisticsDelta();
+  }
+
+  void sendArmingRequest(bool arm);
 
   // High-Level setpoints
   void takeoff(float height, float duration, uint8_t groupMask = 0);

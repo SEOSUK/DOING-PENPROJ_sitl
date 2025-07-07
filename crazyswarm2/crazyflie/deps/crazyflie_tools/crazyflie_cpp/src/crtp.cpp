@@ -293,6 +293,13 @@ std::string crtpGetDeviceTypeNameResponse::name(const bitcraze::crazyflieLinkCpp
   return p.payloadAtString(1);
 }
 
+crtpArmingRequest::crtpArmingRequest(bool arm)
+    : Packet(13, 0, 2)
+{
+  setPayloadAt<uint8_t>(0, 1);
+  setPayloadAt<uint8_t>(1, arm);
+}
+
 #if 0
 crtpFullStateSetpointRequest::crtpFullStateSetpointRequest(
   float x, float y, float z,
@@ -446,3 +453,20 @@ crtpParamSetByNameRequest<float>::crtpParamSetByNameRequest(
 {
 }
 #endif
+
+bool crtpLatencyMeasurementResponse::valid(const bitcraze::crazyflieLinkCpp::Packet &p)
+{
+  return p.port() == 15 &&
+         p.channel() == 0 &&
+         p.payloadSize() == 12;
+}
+
+uint32_t crtpLatencyMeasurementResponse::id(const bitcraze::crazyflieLinkCpp::Packet &p)
+{
+  return p.payloadAt<uint32_t>(0);
+}
+
+uint64_t crtpLatencyMeasurementResponse::timestamp(const bitcraze::crazyflieLinkCpp::Packet &p)
+{
+  return p.payloadAt<uint64_t>(4);
+}

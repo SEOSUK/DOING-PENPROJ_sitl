@@ -7,6 +7,7 @@
 #include "std_srvs/srv/empty.hpp"
 #include "crazyflie_interfaces/srv/takeoff.hpp"
 #include "crazyflie_interfaces/srv/land.hpp"
+#include "crazyflie_interfaces/srv/arm.hpp"
 #include <crazyflie_interfaces/srv/notify_setpoints_stop.hpp>
 #include "geometry_msgs/msg/twist.hpp"
 #include "crazyflie_interfaces/msg/full_state.hpp"
@@ -19,25 +20,12 @@ using std::placeholders::_1;
 using std_srvs::srv::Empty;
 using crazyflie_interfaces::srv::Takeoff;
 using crazyflie_interfaces::srv::Land;
+using crazyflie_interfaces::srv::Arm;
 using crazyflie_interfaces::srv::NotifySetpointsStop;
 using crazyflie_interfaces::msg::FullState;
 
 using namespace std::chrono_literals;
 using namespace Eigen;
-
-namespace Xbox360Buttons {
-
-    enum { Green = 0,
-           Red = 1,
-           Blue = 2,
-           Yellow = 3,
-           LB = 4,
-           RB = 5,
-           Back = 6,
-           Start = 7,
-           COUNT = 8,
-    };
-}
 
 class TeleopNode : public rclcpp::Node
 {
@@ -81,6 +69,22 @@ public:
         this->declare_parameter("cmd_vel_world.y_limit", rclcpp::PARAMETER_DOUBLE_ARRAY);
         this->declare_parameter("cmd_vel_world.z_limit", rclcpp::PARAMETER_DOUBLE_ARRAY);
 
+        this->declare_parameter<float>("takeoff.duration");
+        this->get_parameter<float>("takeoff.duration", takeoff_paras_.duration);
+        this->declare_parameter<float>("takeoff.height");
+        this->get_parameter<float>("takeoff.height", takeoff_paras_.height);
+        this->declare_parameter<int>("takeoff.button");
+        this->get_parameter<int>("takeoff.button", takeoff_paras_.button);
+
+        this->declare_parameter<int>("land.button");
+        this->get_parameter<int>("land.button", land_button);
+        this->declare_parameter<int>("emergency.button");
+        this->get_parameter<int>("emergency.button", emergency_button);
+
+        this->declare_parameter<int>("arm.button");
+        this->get_parameter<int>("arm.button", arm_button);
+        is_armed_ = false;
+
         on_mode_switched();
 
         dt_ = 1.0f/frequency_;
@@ -95,6 +99,7 @@ public:
         }
 
         client_emergency_ = this->create_client<Empty>("emergency");
+        client_arm_ = this->create_client<Arm>("arm");
         client_takeoff_ = this->create_client<Takeoff>("takeoff");
         client_land_ = this->create_client<Land>("land");
         client_notify_setpoints_stop_ = this->create_client<NotifySetpointsStop>("notify_setpoints_stop");
@@ -131,6 +136,17 @@ private:
         }
         return a;
     }
+
+    struct 
+    { 
+        float duration;
+        float height;
+        int button;
+    } takeoff_paras_;
+
+    int land_button;
+    int emergency_button;
+    int arm_button;
 
     void on_parameter_event(const rcl_interfaces::msg::ParameterEvent &event)
     {
@@ -193,19 +209,26 @@ private:
 
     void joyChanged(const sensor_msgs::msg::Joy::SharedPtr msg)
     {
+        static std::vector<int> lastButtonState;
 
-        static std::vector<int> lastButtonState(Xbox360Buttons::COUNT);
+        auto checkButton = [&](int button) { 
+            return msg->buttons.size() > button &&
+                msg->buttons[button] == 1 &&
+                lastButtonState.size() > button &&
+                lastButtonState[button] == 0;
+        };
 
-        if (msg->buttons.size() >= Xbox360Buttons::COUNT && lastButtonState.size() >= Xbox360Buttons::COUNT) {
-            if (msg->buttons[Xbox360Buttons::Red] == 1 && lastButtonState[Xbox360Buttons::Red] == 0) {
-                emergency();
-            }
-            if (msg->buttons[Xbox360Buttons::Start] == 1 && lastButtonState[Xbox360Buttons::Start] == 0) {
-                takeoff();
-            }
-            if (msg->buttons[Xbox360Buttons::Back] == 1 && lastButtonState[Xbox360Buttons::Back] == 0) {
-                land();
-            }
+        if (checkButton(emergency_button)) {
+            emergency();
+        }
+        if (checkButton(arm_button)) {
+            arm();
+        }
+        if (checkButton(takeoff_paras_.button)) {
+            takeoff();
+        }
+        if (checkButton(land_button)) {
+            land();
         }
 
         lastButtonState = msg->buttons;
@@ -219,7 +242,6 @@ private:
         else {
             twist_.angular.z = auto_yaw_rate_; 
         }
-        
     }
 
     sensor_msgs::msg::Joy::_axes_type::value_type getAxis(const sensor_msgs::msg::Joy::SharedPtr &msg, Axis a)
@@ -254,6 +276,18 @@ private:
         client_emergency_->async_send_request(request);
     }
 
+    void arm()
+    {
+        if (!client_arm_->service_is_ready()) {
+            RCLCPP_ERROR(get_logger(), "Arm service not ready!");
+            return;
+        }
+        auto request = std::make_shared<Arm::Request>();
+        request->arm = !is_armed_;
+        client_arm_->async_send_request(request);
+        is_armed_ = !is_armed_;
+    }
+
     void takeoff()
     {
         if (!client_takeoff_->service_is_ready()) {
@@ -262,12 +296,12 @@ private:
         }
         auto request = std::make_shared<Takeoff::Request>();
         request->group_mask = 0;
-        request->height = 0.5;
-        request->duration = rclcpp::Duration::from_seconds(2);
+        request->height = takeoff_paras_.height;
+        request->duration = rclcpp::Duration::from_seconds(takeoff_paras_.duration);
         client_takeoff_->async_send_request(request);
 
-        timer_takeoff_ = this->create_wall_timer(2s, [this]() {
-            state_.z = 0.5;
+        timer_takeoff_ = this->create_wall_timer(std::chrono::duration<float>(takeoff_paras_.duration), [this]() {
+            state_.z = takeoff_paras_.height;  
             is_low_level_flight_active_ = true;
             this->timer_takeoff_->cancel();
         });
@@ -349,6 +383,7 @@ private:
 
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr subscription_;
     rclcpp::Client<std_srvs::srv::Empty>::SharedPtr client_emergency_;
+    rclcpp::Client<Arm>::SharedPtr client_arm_;
     rclcpp::Client<Takeoff>::SharedPtr client_takeoff_;
     rclcpp::Client<Land>::SharedPtr client_land_;
     rclcpp::Client<NotifySetpointsStop>::SharedPtr client_notify_setpoints_stop_;
@@ -369,6 +404,7 @@ private:
     float dt_;
     bool is_low_level_flight_active_;
     double auto_yaw_rate_;
+    bool is_armed_;
 };
 
 int main(int argc, char *argv[])

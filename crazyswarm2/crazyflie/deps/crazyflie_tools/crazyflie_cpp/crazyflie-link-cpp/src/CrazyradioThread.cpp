@@ -149,11 +149,9 @@ void CrazyradioThread::run()
             break;
         }
 
-        bool all_queues_empty = true;
         bool any_outstanding_broadcasts = false;
         for (auto con : connections_copy) {
             if (!con->queue_send_.empty() || con->retry_) {
-                all_queues_empty = false;
                 if (con->broadcast_) {
                     any_outstanding_broadcasts = true;
                     break;
@@ -164,7 +162,7 @@ void CrazyradioThread::run()
         for (auto con : connections_copy) {
 
             // if this queue has nothing to do and we can't even send a ping, skip
-            if (con->queue_send_.empty() && !con->retry_ && (!con->useAutoPing_ || !all_queues_empty)) {
+            if (con->queue_send_.empty() && !con->retry_ && !con->useAutoPing_) {
                 continue;
             }
 
@@ -179,23 +177,28 @@ void CrazyradioThread::run()
             //     continue;
             // }
             // reconfigure radio if needed
+            bool radio_reconfigured = false;
             if (radio.address() != con->address_)
             {
                 radio.setAddress(con->address_);
+                radio_reconfigured = true;
             }
             if (radio.channel() != con->channel_)
             {
                 radio.setChannel(con->channel_);
+                radio_reconfigured = true;
             }
             if (radio.datarate() != con->datarate_)
             {
                 radio.setDatarate(con->datarate_);
+                radio_reconfigured = true;
             }
             // Enable ack if broadcast is false
             // Disable ack if broadcast is true
             if (radio.ackEnabled() == con->broadcast_)
             {
                 radio.setAckEnabled(!con->broadcast_);
+                radio_reconfigured = true;
             }
             if (con->broadcast_ && !supports_broadcasts) {
                 std::stringstream sstr;
@@ -203,6 +206,12 @@ void CrazyradioThread::run()
                 sstr << " Your radio with firmware " << version.first << "." << version.second 
                      << " does not support broadcast communication. Please upgrade your Crazyradio firmware!";
                 throw std::runtime_error(sstr.str());
+            }
+
+            // have to wait a bit before sending the next broadcast
+            // to avoid queues on the firmware to overflow
+            if (con->broadcast_ && !radio_reconfigured) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
 
             // prepare to send result
@@ -232,7 +241,7 @@ void CrazyradioThread::run()
                             p = con->queue_send_.top();
                             con->queue_send_.pop();
                             --con->statistics_.enqueued_count;
-                        } else if (!con->useAutoPing_ || !all_queues_empty)
+                        } else if (!con->useAutoPing_)
                         {
                             continue;
                         } else {
@@ -288,7 +297,7 @@ void CrazyradioThread::run()
                         }
                     }
                 }
-                else if (con->useAutoPing_ && all_queues_empty)
+                else if (con->useAutoPing_)
                 {
                     ack = radio.sendPacket(ping, sizeof(ping));
                     ++con->statistics_.sent_count;

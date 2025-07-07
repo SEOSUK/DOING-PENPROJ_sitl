@@ -45,8 +45,8 @@ namespace libmotioncapture {
       : version()
       , versionMajor(0)
       , versionMinor(0)
-      , io_service()
-      , socket(io_service)
+      , io_context()
+      , socket(io_context)
       , sender_endpoint()
       , data(MAX_PACKETSIZE)
     {
@@ -111,13 +111,14 @@ namespace libmotioncapture {
           // printf("Dataset %d\n", i);
 
           int type = 0; memcpy(&type, ptr, 4); ptr += 4;
+          int description_size = 0;
           // printf("Type : %d\n", i, type);
 
           if ((major == 4 && minor >= 1) || major > 4)
           {
             // If the NatNet version is 4.1 or greater, next four bytes represent
             // the number of bytes in the dataset. Just skip them.
-            ptr += 4;
+            memcpy(&description_size, ptr, 4); ptr += 4;
           }
 
           if(type == 0)   // markerset
@@ -172,6 +173,12 @@ namespace libmotioncapture {
                 }
               }
             }
+          }
+          else if ((major == 4 && minor >= 1) || major > 4)
+          {
+            // We got a description_size for > 4.1, which is simpler to discard
+            // for unsuported datatypes
+            ptr += description_size;
           }
           else if(type ==2)   // skeleton
           {
@@ -233,7 +240,7 @@ namespace libmotioncapture {
     int versionMinor;
     uint64_t clockFrequency; // ticks/second for timestamps
 
-    boost::asio::io_service io_service;
+    boost::asio::io_context io_context;
     boost::asio::ip::udp::socket socket;
     boost::asio::ip::udp::endpoint sender_endpoint;
     std::vector<char> data;
@@ -278,10 +285,10 @@ namespace libmotioncapture {
     pImpl = new MotionCaptureOptitrackImpl;
 
     // Connect to command port to query version
-    boost::asio::io_service io_service_cmd;
-    udp::socket socket_cmd(io_service_cmd, udp::endpoint(udp::v4(), 0));
-    udp::resolver resolver_cmd(io_service_cmd);
-    udp::endpoint endpoint_cmd = *resolver_cmd.resolve({udp::v4(), hostname, std::to_string(port_command)});
+    boost::asio::io_context io_context_cmd;
+    udp::socket socket_cmd(io_context_cmd, udp::endpoint(udp::v4(), 0));
+    udp::resolver resolver_cmd(io_context_cmd);
+    udp::endpoint endpoint_cmd(boost::asio::ip::make_address(hostname), port_command);
 
     typedef struct
     {
@@ -347,8 +354,8 @@ namespace libmotioncapture {
     pImpl->parseModelDef(modelDef.data());
 
     // connect to data port to receive mocap data
-    auto listen_address_boost = boost::asio::ip::address_v4::from_string(interface_ip);
-    auto multicast_address_boost = boost::asio::ip::address_v4::from_string(multicast_address);
+    auto listen_address_boost = boost::asio::ip::make_address_v4(interface_ip);
+    auto multicast_address_boost = boost::asio::ip::make_address_v4(multicast_address);
 
     // Create the socket so that multiple may be bound to the same address.
     boost::asio::ip::udp::endpoint listen_endpoint(

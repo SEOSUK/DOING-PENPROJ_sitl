@@ -25,7 +25,8 @@ VALID_SUBCMDS = {
    "version",
    "listLogVariables",
    "listParams", 
-   "listMemories"
+   "listMemories",
+   "flash",
 }
 
 
@@ -46,6 +47,9 @@ def main():
     yaml_parser.add_argument("-C", "--configpath",
 		default=Path(__file__).parent.parent.resolve() / "config",
 		help="Path to the configuration *.yaml files")
+    
+    parser.add_argument("--file_name", help="File name for flashing the crazyflie",
+            type=str, default="")
 
     args = parser.parse_args()
 
@@ -63,13 +67,25 @@ def main():
     
     # Run for all URI's determined.
     for uri in uris:
-        cmd = [
+        if args.subcommand[0] == "flash":
+            SUBPROC_TIMEOUT = 20
+            cmd = [
             "ros2", 
             "run", 
             "crazyflie", 
-            *args.subcommand, 
+            "flash.py", 
             f"--uri={uri}",
+            f"--file_name={args.file_name}"
         ]
+        else:
+            SUBPROC_TIMEOUT = 1
+            cmd = [
+                "ros2", 
+                "run", 
+                "crazyflie", 
+                *args.subcommand, 
+                f"--uri={uri}",
+            ]
         print(f"{' '.join(cmd)}")
         subprocess.run(cmd, timeout=SUBPROC_TIMEOUT)
 

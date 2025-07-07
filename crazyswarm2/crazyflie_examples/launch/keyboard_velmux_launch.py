@@ -1,8 +1,10 @@
 import os
-import yaml
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
+import yaml
+
 
 def generate_launch_description():
     # load crazyflies
@@ -15,6 +17,15 @@ def generate_launch_description():
         crazyflies = yaml.safe_load(ymlfile)
 
     server_params = crazyflies
+
+    # robot description
+    urdf = os.path.join(
+        get_package_share_directory('crazyflie'),
+        'urdf',
+        'crazyflie_description.urdf')
+    with open(urdf, 'r') as f:
+        robot_desc = f.read()
+    server_params['robot_description'] = robot_desc
 
     return LaunchDescription([
         Node(
@@ -29,8 +40,8 @@ def generate_launch_description():
             executable='vel_mux.py',
             name='vel_mux',
             output='screen',
-            parameters=[{"hover_height": 0.3},
-                        {"incoming_twist_topic": "/cmd_vel"},
-                        {"robot_prefix": "/cf1"}]
+            parameters=[{'hover_height': 0.3},
+                        {'incoming_twist_topic': '/cmd_vel'},
+                        {'robot_prefix': '/cf231'}]
         ),
     ])

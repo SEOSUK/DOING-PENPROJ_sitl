@@ -35,6 +35,8 @@ Crazyflie::Crazyflie(
   , m_protocolVersion(-1)
   , m_logger(logger)
   , m_connection(link_uri)
+  , m_clock_start(std::chrono::steady_clock::now())
+  , m_latencyCounter(0)
 {
 }
 
@@ -44,6 +46,20 @@ std::vector<std::string> Crazyflie::scan(
   return bitcraze::crazyflieLinkCpp::Connection::scan(address);
 }
 
+std::string Crazyflie::broadcastUriFromUnicastUri(
+  const std::string& link_uri)
+{
+  const std::regex uri_regex("radio:\\/\\/(\\d+|\\*)\\/(\\d+)\\/(250K|1M|2M)\\/([a-fA-F0-9]+)");
+  std::smatch match;
+  if (!std::regex_match(link_uri, match, uri_regex))
+  {
+    // unsupported for broadcast
+    return std::string();
+  }
+
+  return "radiobroadcast://*/" + match[2].str() + "/" + match[3].str();
+}
+
 std::string Crazyflie::uri() const
 {
   return m_connection.uri();
@@ -51,15 +67,7 @@ std::string Crazyflie::uri() const
 
 std::string Crazyflie::broadcastUri() const
 {
-  const std::regex uri_regex("radio:\\/\\/(\\d+|\\*)\\/(\\d+)\\/(250K|1M|2M)\\/([a-fA-F0-9]+)");
-  std::smatch match;
-  if (!std::regex_match(m_connection.uri(), match, uri_regex))
-  {
-    // unsupported for broadcast
-    return std::string();
-  }
-
-  return "radiobroadcast://*/" + match[2].str() + "/" + match[3].str();
+  return Crazyflie::broadcastUriFromUnicastUri(uri());
 }
 
 uint64_t Crazyflie::address() const
@@ -98,6 +106,12 @@ std::string Crazyflie::getDeviceTypeName()
   using res = crtpGetDeviceTypeNameResponse;
   auto p = waitForResponse(&res::valid);
   return res::name(p);
+}
+
+void Crazyflie::sendArmingRequest(bool arm)
+{
+  crtpArmingRequest req(arm);
+  m_connection.send(req);
 }
 
 void Crazyflie::logReset()
@@ -217,11 +231,15 @@ void Crazyflie::sendPing()
   }
 }
 
-void Crazyflie::spin_once()
+void Crazyflie::processAllPackets()
 {
-  auto p = m_connection.receive(bitcraze::crazyflieLinkCpp::Connection::TimeoutNone);
-  if (p.valid()) {
-    processPacket(p);
+  while (true) {
+    auto p = m_connection.receive(bitcraze::crazyflieLinkCpp::Connection::TimeoutNone);
+    if (p.valid()) {
+      processPacket(p);
+    } else {
+      break;
+    }
   }
 }
 
@@ -989,6 +1007,21 @@ void Crazyflie::processPacket(const bitcraze::crazyflieLinkCpp::Packet& p)
       m_logger.warning("Received unrequested data for block: " + std::to_string((int)blockId));
     }
   }
+  else if (crtpLatencyMeasurementResponse::valid(p))
+  {
+    if (m_latencyCallback)
+    {
+      if (crtpLatencyMeasurementResponse::id(p) != m_latencyCounter-1) {
+        m_logger.warning("Received wrong latency id: " + std::to_string(crtpLatencyMeasurementResponse::id(p)));
+      } else {
+        auto now = std::chrono::steady_clock::now();
+        uint64_t recv_timestamp = std::chrono::duration_cast<std::chrono::microseconds>(now - m_clock_start).count();
+        uint64_t send_timestamp = crtpLatencyMeasurementResponse::timestamp(p);
+        uint64_t latency_in_us = recv_timestamp - send_timestamp;
+        m_latencyCallback(latency_in_us);
+      }
+    }
+  }
 }
 
 const Crazyflie::LogTocEntry* Crazyflie::getLogTocEntry(
@@ -1080,12 +1113,49 @@ void Crazyflie::uploadTrajectory(
         req.setDataAt(0, reinterpret_cast<const uint8_t *>(pieces.data()) + i * 24, size);
         req.setDataSize(size);
         m_connection.send(req);
+
+        // wait for the response
+        using res = crtpMemoryWriteResponse;
+        auto p = waitForResponse(&res::valid);
+        if (   res::id(p) != entry.id
+            || res::address(p) != pieceOffset * sizeof(poly4d) + i*24
+            || res::status(p) != 0) {
+            m_logger.error("uploadTrajectory: unexpected response!" + std::to_string(res::status(p)));
+        }
+
         remainingBytes -= size;
       }
       // define trajectory
       crtpCommanderHighLevelDefineTrajectoryRequest req(trajectoryId);
       req.setPoly4d(pieceOffset * sizeof(poly4d), (uint8_t)pieces.size());
       m_connection.send(req);
+
+      // // verify
+      // remainingBytes = sizeof(poly4d) * pieces.size();
+      // numRequests = ceil(remainingBytes / 24.0f);
+      // for (size_t i = 0; i < numRequests; ++i) {
+      //   size_t size = std::min<size_t>(remainingBytes, 24);
+      //   crtpMemoryReadRequest req(entry.id, pieceOffset * sizeof(poly4d) + i*24, size);
+        
+      //   m_connection.send(req);
+      //   using res = crtpMemoryReadResponse;
+      //   auto p = waitForResponse(&res::valid);
+      //   if (   res::id(p) != entry.id
+      //       || res::address(p) != pieceOffset * sizeof(poly4d) + i*24
+      //       || res::dataSize(p) != size
+      //       || res::status(p) != 0) {
+      //       m_logger.error("uploadTrajectory: unexpected response!");
+      //       return;
+      //   }
+
+      //   if (memcmp(reinterpret_cast<const uint8_t *>(pieces.data()) + i * 24, res::data(p), res::dataSize(p)) != 0) {
+      //       m_logger.error("uploadTrajectory: verify failed!");
+      //   }
+
+      //   remainingBytes -= size;
+      // }
+      // m_logger.info("upload & verify done!");
+
       return;
     }
   }
@@ -1102,37 +1172,48 @@ void Crazyflie::startTrajectory(
   crtpCommanderHighLevelStartTrajectoryRequest req(groupMask, relative, reversed, trajectoryId, timescale);
   m_connection.send(req);
 }
-#if 0
+
 void Crazyflie::readUSDLogFile(
   std::vector<uint8_t>& data)
 {
   for (const auto& entry : m_memoryTocEntries) {
     if (entry.type == MemoryTypeUSD) {
-      startBatchRequest();
       size_t remainingBytes = entry.size;
       size_t numRequests = ceil(remainingBytes / 24.0f);
+      data.resize(entry.size);
       for (size_t i = 0; i < numRequests; ++i) {
         size_t size = std::min<size_t>(remainingBytes, 24);
         crtpMemoryReadRequest req(entry.id, i*24, size);
-        remainingBytes -= size;
-        addRequest(req, 5);
-      }
-      handleRequests();
-      // put result in data vector
-      data.resize(entry.size);
-      remainingBytes = entry.size;
-      for (size_t i = 0; i < numRequests; ++i) {
-        size_t size = std::min<size_t>(remainingBytes, 24);
-        const crtpMemoryReadResponse* response = getRequestResult<crtpMemoryReadResponse>(i);
-        memcpy(&data[i*24], response->data, size);
+        
+        m_connection.send(req);
+        using res = crtpMemoryReadResponse;
+        auto p = waitForResponse(&res::valid);
+        if (   res::id(p) != entry.id
+            || res::address(p) != i*24
+            || res::dataSize(p) != size
+            || res::status(p) != 0) {
+            m_logger.error("readUSDLogFile: unexpected response!");
+            data.clear();
+            return;
+        }
+        memcpy(&data[i*24], res::data(p), res::dataSize(p));
         remainingBytes -= size;
       }
       return;
     }
   }
-  throw std::runtime_error("Could not find MemoryTypeUSD!");
+  m_logger.error("Could not find MemoryTypeUSD!");
 }
-#endif
+
+void Crazyflie::triggerLatencyMeasurement()
+{
+  auto now = std::chrono::steady_clock::now();
+  uint64_t timestamp = std::chrono::duration_cast<std::chrono::microseconds>(now - m_clock_start).count();
+  crtpLatencyMeasurementRequest req(m_latencyCounter, timestamp);
+  m_connection.send(req);
+
+  ++m_latencyCounter;
+}
 ////////////////////////////////////////////////////////////////
 
 CrazyflieBroadcaster::CrazyflieBroadcaster(
@@ -1140,6 +1221,13 @@ CrazyflieBroadcaster::CrazyflieBroadcaster(
   : m_connection(link_uri)
 {
 }
+
+void CrazyflieBroadcaster::sendArmingRequest(bool arm)
+{
+  crtpArmingRequest req(arm);
+  m_connection.send(req);
+}
+
 void CrazyflieBroadcaster::takeoff(float height, float duration, uint8_t groupMask)
 {
   crtpCommanderHighLevelTakeoffRequest req(groupMask, height, duration);
