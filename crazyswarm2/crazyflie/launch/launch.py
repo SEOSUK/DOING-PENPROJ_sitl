@@ -86,15 +86,15 @@ def generate_launch_description():
         DeclareLaunchArgument('mocap', default_value='True'),
         DeclareLaunchArgument('server_yaml_file', default_value=''),
         DeclareLaunchArgument('teleop_yaml_file', default_value=''),
-        DeclareLaunchArgument('mocap_yaml_file', default_value=''),
-        Node(
-            package='motion_capture_tracking',
-            executable='motion_capture_tracking_node',
-            condition=IfCondition(PythonExpression(["'", LaunchConfiguration('backend'), "' != 'sim' and '", LaunchConfiguration('mocap'), "' == 'True'"])),
-            name='motion_capture_tracking',
-            output='screen',
-            parameters= [PythonExpression(["'tmp_motion_capture.yaml' if '", LaunchConfiguration('mocap_yaml_file'), "' == '' else '", LaunchConfiguration('mocap_yaml_file'), "'"])],
-        ),
+        # DeclareLaunchArgument('mocap_yaml_file', default_value=''),
+        # Node(
+        #     package='motion_capture_tracking',
+        #     executable='motion_capture_tracking_node',
+        #     condition=IfCondition(PythonExpression(["'", LaunchConfiguration('backend'), "' != 'sim' and '", LaunchConfiguration('mocap'), "' == 'True'"])),
+        #     name='motion_capture_tracking',
+        #     output='screen',
+        #     parameters= [PythonExpression(["'tmp_motion_capture.yaml' if '", LaunchConfiguration('mocap_yaml_file'), "' == '' else '", LaunchConfiguration('mocap_yaml_file'), "'"])],
+        # ),
         Node(
             package='crazyflie',
             executable='teleop',
@@ -162,5 +162,11 @@ def generate_launch_description():
             parameters=[{
                 "use_sim_time": PythonExpression(["'", LaunchConfiguration('backend'), "' == 'sim'"]),
             }]
+        ),
+        # goto sub 노드 실행
+        Node(
+            package='crazyflie_examples',
+            executable='goto_subscriber',
+            output='screen',
         ),
     ])
