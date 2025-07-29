@@ -84,6 +84,7 @@ trajectory_generator()
     timer_ = this->create_wall_timer(
       control_loop_period, std::bind(&trajectory_generator::timer_callback, this));
 
+    normal_vector_hat << 1,0,0;
 
   }
 
@@ -110,53 +111,61 @@ private:
     
     if (!surface_tracking_Flag)
     {
-      contact_flag = false;
+      surface_projection_flag = false;
     }
     else
     {
       if (global_force_meas.norm() > 0.001 &&   // 접촉 threshold
           global_EE_xyz_vel_meas.norm() > 0.06)
       {
-        contact_flag = true;   // Surface Projection 할지말지
+        surface_projection_flag = true;   // Surface Projection 할지말지
       }
       else
       {
-        contact_flag = false;
+        surface_projection_flag = false;
       }
     }
 
-      if (global_force_meas.norm() > 0.001 &&   // 접촉 threshold
-          global_EE_xyz_vel_meas.norm() > 0.06)
-      {
-        estimation_flag = true;  // 법벡추
-      }
-      else
-      {
-        estimation_flag = false;
-      }
+    if (global_force_meas.norm() > 0.001 &&   // 접촉 threshold
+        global_EE_xyz_vel_meas.norm() > 0.06)
+    {
+      estimation_flag = true;  // 법벡추
+    }
+    else
+    {
+      estimation_flag = false;
+    }
 
 
   }
+
 
   void normal_vector_estimation()
   {
+      // ✅ bias_weight는 함수 내부에 정의되어야 합니다
+      Eigen::Vector3d bias_weight{0, 0.1, 0}; // 각 방향 성분별 영향 비율
+      Eigen::Vector3d global_force_meas_unit = global_force_meas.normalized();
+      Eigen::Vector3d force_bias = global_force_meas_unit.cwiseProduct(bias_weight);
 
       if (estimation_flag)
       {
-        double alpha = (global_force_meas.dot(global_EE_xyz_vel_meas)) / (global_EE_xyz_vel_meas.dot(global_EE_xyz_vel_meas));
-        global_EE_force_normal_meas = normal_vector_filter.apply(global_force_meas - alpha * global_EE_xyz_vel_meas);
-        // 여기까지가 Kin 방법 기반 추정기
+          double alpha = ((global_force_meas + force_bias).dot(global_EE_xyz_vel_meas)) / 
+                        (global_EE_xyz_vel_meas.dot(global_EE_xyz_vel_meas));
 
-        global_xi = global_EE_force_normal_meas - global_force_des;
+          global_EE_force_normal_meas = normal_vector_filter.apply(
+              (global_force_meas + force_bias) - alpha * global_EE_xyz_vel_meas
+          );
 
-        delta_normal_vector_hat = global_xi - (global_xi.dot(normal_vector_hat)) * normal_vector_hat;
+          global_xi = global_EE_force_normal_meas - global_force_des;
 
-        normal_vector_hat += rho * delta_normal_vector_hat / control_loop_hz;
-        normal_vector_hat.normalize();
+          delta_normal_vector_hat = global_xi - (global_xi.dot(normal_vector_hat)) * normal_vector_hat;
 
+          // normal_vector_hat += rho * delta_normal_vector_hat / control_loop_hz;
+          normal_vector_hat = global_EE_force_normal_meas;
+          normal_vector_hat.normalize();
       }
-
   }
+
 
 
   void Define_normal_frame()
@@ -199,7 +208,7 @@ private:
     Chat_rpy_msg.data.push_back(Chat_rpy[0]);
     Chat_rpy_msg.data.push_back(Chat_rpy[1]);
     Chat_rpy_msg.data.push_back(Chat_rpy[2]);
-    if (contact_flag) Chat_rpy_msg.data.push_back(1);
+    if (surface_projection_flag) Chat_rpy_msg.data.push_back(1);
     else Chat_rpy_msg.data.push_back(0);
     Chat_rpy_publisher_->publish(Chat_rpy_msg);
 
@@ -254,29 +263,27 @@ private:
 
   void surface_trajectory_generation()
   {
-    if (contact_flag)
-      {
-        ////////////////////////
-        // Position Generation//
-        ////////////////////////
-        global_des_vel_xyzYaw.head(3) = R_Chat *(chat_des_vel_xyzYaw.head(3) + chat_des_vel_adm.head(3));
+      global_des_vel_xyzYaw.head(3) = R_Chat * (chat_des_vel_xyzYaw.head(3) + chat_des_vel_adm.head(3));
 
-        ////////////////////////
-        //// Yaw Generation //// 우선은 PID 돌림.
-        ////////////////////////
+    if (surface_projection_flag)
+    {
         global_yaw_cmd =  std::atan2(Chat_x[1], Chat_x[0]);
         double global_error_yaw = global_yaw_cmd - body_rpy_meas[2];
         double global_error_yaw_dot = (global_error_yaw - global_error_yaw_prev) * control_loop_hz;
-        global_des_vel_xyzYaw[3] = 0.7 * global_error_yaw + 0.01 * global_error_yaw_dot;
+        // global_des_vel_xyzYaw[3] = 2 * global_error_yaw + 0.05 * global_error_yaw_dot;
+
+        global_des_xyzYaw += global_des_vel_xyzYaw / control_loop_hz;
+        global_des_xyzYaw[3] = global_yaw_cmd;
       }
     else
-      {
-        global_des_vel_xyzYaw = chat_des_vel_xyzYaw;
-      }
+    {
+      global_des_vel_xyzYaw = chat_des_vel_xyzYaw;
+      global_des_xyzYaw += global_des_vel_xyzYaw / control_loop_hz;
+    }
 
-    global_des_xyzYaw += global_des_vel_xyzYaw / control_loop_hz;
-    if (contact_flag) global_des_xyzYaw[3] = global_yaw_cmd;
+
   }
+
 
   void keyboard_subsciber_callback(const std_msgs::msg::String::SharedPtr msg)
   {
@@ -308,6 +315,7 @@ private:
             }
             else if (input_char == 'j') chat_force_des[0] += force_delta_cmd;
             else if (input_char == 'k') chat_force_des[0] -= force_delta_cmd;
+            else if (input_char == 'l') chat_force_des[0] = 0;
           }
 
     }
@@ -413,7 +421,7 @@ private:
 
   double time_cnt;
   double time_real;
-  double rho = 100;
+  double rho = 1000;
   double global_yaw_cmd;
 
   double global_error_yaw_prev;
@@ -422,7 +430,7 @@ private:
   FilteredVector force_dot_filter;
   FilteredVector normal_vector_filter;
 
-  bool contact_flag = false;
+  bool surface_projection_flag = false;
   bool estimation_flag = false;
   bool surface_tracking_Flag = false;
   Eigen::Matrix3d virtual_damper = (Eigen::Vector3d(5, 0, 0)).asDiagonal();
@@ -434,7 +442,7 @@ private:
   double control_loop_hz = 0;
   double numerical_calc_loop_hz = 0;
   Eigen::Vector4d position_delta_cmd = Eigen::Vector4d::Zero();
-  double force_delta_cmd = 0;
+  double force_delta_cmd = 0.1;
   double force_lpf_cof = 0;
   double normal_vector_estimator_lpf_cof = 0;
 

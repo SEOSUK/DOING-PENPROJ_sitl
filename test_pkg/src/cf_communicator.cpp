@@ -22,6 +22,10 @@ public:
     control_loop_hz = this->declare_parameter<double>("control_loop_hz", 100.0);
     auto control_loop_period = std::chrono::duration<double>(1.0 / control_loop_hz);
 
+    num_control_loop_hz = this->declare_parameter<double>("num_control_loop_hz", 100.0);    
+    auto num_control_loop_period = std::chrono::duration<double>(1.0 / num_control_loop_hz);
+
+
     // Subscribers
     cf_pose_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
       "/cf2/pose", qos_settings,
@@ -50,11 +54,15 @@ public:
     vel_pub_     = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/vel", qos_settings);
     thrust_pub_  = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/thrust", qos_settings);
     omega_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/omega", qos_settings);
+    alpha_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/alpha", qos_settings);
 
     // Timer: 100Hz
     timer_ = this->create_wall_timer(
       control_loop_period, std::bind(&CfCommunicator::timer_callback, this));
 
+      
+    num_cal_timer_ = this->create_wall_timer(
+      num_control_loop_period, std::bind(&CfCommunicator::num_cal_timer_callback, this));
   }
 
 private:
@@ -141,6 +149,11 @@ private:
     omega_msg.data.push_back(omega_data_(2));
     omega_pub_->publish(omega_msg);    
 
+    std_msgs::msg::Float64MultiArray alpha_msg;
+    alpha_msg.data.push_back(alpha_data_(0));
+    alpha_msg.data.push_back(alpha_data_(1));
+    alpha_msg.data.push_back(alpha_data_(2));
+    omega_pub_->publish(omega_msg);    
 
     
   // ✅ 상태 출력 추가 (topic echo 느낌)
@@ -169,6 +182,19 @@ private:
 
   }
 
+
+
+  void num_cal_timer_callback()
+  {
+    // TODO: omega_data_ 를 수치미분하여 alpha_data_를 만들기.
+    // Note: 수치미분 
+
+  }
+
+
+
+
+
   // Subscribers
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
   rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_acc_subscriber_;
@@ -182,9 +208,10 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr vel_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr thrust_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr omega_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr alpha_pub_;
 
   // Timer
-  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr timer_, num_cal_timer_;
 
   // Internal Data (Eigen)
   Eigen::VectorXd pose_data_ = Eigen::VectorXd::Zero(7);
@@ -194,8 +221,9 @@ private:
   Eigen::Vector3d vel_data_{Eigen::Vector3d::Zero()};
   Eigen::Vector3d thrust_data_{Eigen::Vector3d::Zero()};
   Eigen::Vector3d omega_data_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d alpha_data_{Eigen::Vector3d::Zero()};
 
-  double control_loop_hz, control_loop_period;
+  double control_loop_hz, control_loop_period, num_control_loop_hz, num_control_loop_period;
 };
 
 int main(int argc, char *argv[])

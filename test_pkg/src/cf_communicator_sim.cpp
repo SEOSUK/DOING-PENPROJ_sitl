@@ -18,9 +18,10 @@ class CfCommunicatorSIM : public rclcpp::Node
 {
 public:
   CfCommunicatorSIM() : Node("cf_communicator_sim"),
-  body_omega_dot_filter(3, 5.0, 1.0 / 50),
-  global_xyz_vel_dot_filter(3, 5.0, 1.0 / 50),  
-  body_rpy_meas_dot_filter(3, 5.0, 1.0 / 50)
+  body_omega_dot_filter(3, 1, 1.0 / 50),
+  global_xyz_vel_dot_filter(3, 1, 1.0 / 50),  
+  global_xyz_meas_dot_filter(3, 1, 1.0 / 50),
+  body_rpy_meas_dot_filter(3, 1, 1.0 / 50)
   {
     rclcpp::QoS qos_settings = rclcpp::QoS(rclcpp::KeepLast(10))
                                   .reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE)
@@ -44,6 +45,9 @@ public:
       "/cf2/MJ_Command_thrust", qos_settings,
       std::bind(&CfCommunicatorSIM::cf_thrust_callback, this, _1));
 
+    cf_torque_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
+      "/cf2/SEUK_pid_rate_cmd", qos_settings,
+      std::bind(&CfCommunicatorSIM::cf_torque_callback, this, _1));      
 
     // Publishers
     pose_pub_    = this->create_publisher<geometry_msgs::msg::PoseStamped>("/pen/pose", qos_settings);
@@ -51,6 +55,8 @@ public:
     vel_pub_     = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/vel", qos_settings);
     thrust_pub_  = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/thrust", qos_settings);
     omega_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/omega", qos_settings);
+    alpha_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/alpha", qos_settings);
+    torque_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/torque", qos_settings);
 
     // Timer
     timer_ = this->create_wall_timer(
@@ -61,6 +67,87 @@ public:
 
 private:
   // Callback: Pose
+
+  void data_publish()
+  {
+    geometry_msgs::msg::PoseStamped pose_msg;
+    pose_msg.header.stamp = this->get_clock()->now();  // 🟢 타임스탬프 명시
+    pose_msg.header.frame_id = "cf2";  // 🟢 프레임 명시 (TF를 위한 필수값)
+    pose_msg.pose.position.x = global_xyz_meas[0];
+    pose_msg.pose.position.y = global_xyz_meas[1];
+    pose_msg.pose.position.z = global_xyz_meas[2];
+    pose_msg.pose.orientation.x = global_quat_meas[0];
+    pose_msg.pose.orientation.y = global_quat_meas[1];
+    pose_msg.pose.orientation.z = global_quat_meas[2];
+    pose_msg.pose.orientation.w = global_quat_meas[3];
+
+    pose_pub_->publish(pose_msg);
+
+
+    std_msgs::msg::Float64MultiArray vel_msg;
+    vel_msg.data.push_back(global_xyz_vel_meas[0]);
+    vel_msg.data.push_back(global_xyz_vel_meas[1]);
+    vel_msg.data.push_back(global_xyz_vel_meas[2]);
+    vel_pub_->publish(vel_msg);
+
+
+    std_msgs::msg::Float64MultiArray acc_msg;
+    acc_msg.data.push_back(global_xyz_acc(0));
+    acc_msg.data.push_back(global_xyz_acc(1));
+    acc_msg.data.push_back(global_xyz_acc(2));
+    acc_pub_->publish(acc_msg);
+
+
+    std_msgs::msg::Float64MultiArray thrust_msg;
+    thrust_msg.data.push_back(thrust_data_(0));
+    thrust_msg.data.push_back(thrust_data_(1));
+    thrust_msg.data.push_back(thrust_data_(2));
+    thrust_pub_->publish(thrust_msg);
+
+    std_msgs::msg::Float64MultiArray omega_msg;
+    omega_msg.data.push_back(body_omega_meas(0));
+    omega_msg.data.push_back(body_omega_meas(1));
+    omega_msg.data.push_back(body_omega_meas(2));
+    omega_pub_->publish(omega_msg);    
+
+    std_msgs::msg::Float64MultiArray alpha_msg;
+    alpha_msg.data.push_back(body_alpha_meas(0));
+    alpha_msg.data.push_back(body_alpha_meas(1));
+    alpha_msg.data.push_back(body_alpha_meas(2));
+    alpha_pub_->publish(alpha_msg);      
+
+    std_msgs::msg::Float64MultiArray torque_msg;
+    torque_msg.data.push_back(torque_data_(0));
+    torque_msg.data.push_back(torque_data_(1));
+    torque_msg.data.push_back(torque_data_(2));
+    torque_pub_->publish(torque_msg);      
+
+    
+  // // ✅ 상태 출력 추가 (topic echo 느낌)
+  // RCLCPP_INFO(this->get_logger(),
+  //             "POSE   [%.3f %.3f %.3f] [%.3f %.3f %.3f %.3f]",
+  //             global_xyz_meas[0], global_xyz_meas[1], global_xyz_meas[2],
+  //             global_quat_meas[0], global_quat_meas[1], global_quat_meas[2], global_quat_meas[3]);
+
+  // RCLCPP_INFO(this->get_logger(),
+  //             "ACC    [%.3f %.3f %.3f]",
+  //             global_xyz_acc(0), global_xyz_acc(1), global_xyz_acc(2));
+
+  // RCLCPP_INFO(this->get_logger(),
+  //             "VEL    [%.3f %.3f %.3f]",
+  //             global_xyz_vel_meas(0), global_xyz_vel_meas(1), global_xyz_vel_meas(2));
+
+  // RCLCPP_INFO(this->get_logger(),
+  //             "THRUST [%.3f %.3f %.3f]",
+  //             thrust_data_(0), thrust_data_(1), thrust_data_(2));
+
+  // RCLCPP_INFO(this->get_logger(),
+  //             "OMEGA  [%.3f %.3f %.3f] (rad/s)",
+  //             body_omega_meas(0), body_omega_meas(1), body_omega_meas(2));
+    
+  }
+
+
   void cf_pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
     global_xyz_meas[0] = msg->pose.position.x;
@@ -115,7 +202,9 @@ private:
   void cf_vel_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
   {
     for (size_t i = 0; i < 3; ++i)
-      global_xyz_vel_meas(i) = msg->values[i];
+      body_xyz_vel_meas(i) = msg->values[i];
+    
+    global_xyz_vel_meas = R_B * body_xyz_vel_meas;
   }
 
   // Callback: Thrust
@@ -125,9 +214,17 @@ private:
       thrust_data_(i) = msg->values[i];
   }
 
+  void cf_torque_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
+  {
+    for (size_t i = 0; i < 3; ++i)
+      torque_data_(i) = msg->values[i];
+  }
+
   void numerical_calc()
   {
 
+    global_xyz_vel_meas = global_xyz_meas_dot_filter.apply((global_xyz_meas - global_xyz_meas_prev) * control_loop_hz);
+    global_xyz_meas_prev = global_xyz_meas;
     global_xyz_vel_dot_raw = (global_xyz_vel_meas - global_xyz_vel_meas_prev) * control_loop_hz;
     global_xyz_acc = global_xyz_vel_dot_filter.apply(global_xyz_vel_dot_raw);
     global_xyz_vel_meas_prev = global_xyz_vel_meas;
@@ -156,75 +253,6 @@ private:
     body_omega_prev = body_omega_meas;
 
 
-
-  }
-
-  void data_publish()
-  {
-    geometry_msgs::msg::PoseStamped pose_msg;
-    pose_msg.header.stamp = this->get_clock()->now();  // 🟢 타임스탬프 명시
-    pose_msg.header.frame_id = "cf2";  // 🟢 프레임 명시 (TF를 위한 필수값)
-    pose_msg.pose.position.x = global_xyz_meas[0];
-    pose_msg.pose.position.y = global_xyz_meas[1];
-    pose_msg.pose.position.z = global_xyz_meas[2];
-    pose_msg.pose.orientation.x = global_quat_meas[0];
-    pose_msg.pose.orientation.y = global_quat_meas[1];
-    pose_msg.pose.orientation.z = global_quat_meas[2];
-    pose_msg.pose.orientation.w = global_quat_meas[3];
-
-    pose_pub_->publish(pose_msg);
-
-
-    std_msgs::msg::Float64MultiArray vel_msg;
-    vel_msg.data.push_back(global_xyz_vel_meas[0]);
-    vel_msg.data.push_back(global_xyz_vel_meas[1]);
-    vel_msg.data.push_back(global_xyz_vel_meas[2]);
-    vel_pub_->publish(vel_msg);
-
-
-    std_msgs::msg::Float64MultiArray acc_msg;
-    acc_msg.data.push_back(global_xyz_acc(0));
-    acc_msg.data.push_back(global_xyz_acc(1));
-    acc_msg.data.push_back(global_xyz_acc(2));
-    acc_pub_->publish(acc_msg);
-
-
-    std_msgs::msg::Float64MultiArray thrust_msg;
-    thrust_msg.data.push_back(thrust_data_(0));
-    thrust_msg.data.push_back(thrust_data_(1));
-    thrust_msg.data.push_back(thrust_data_(2));
-    thrust_pub_->publish(thrust_msg);
-
-    std_msgs::msg::Float64MultiArray omega_msg;
-    omega_msg.data.push_back(body_omega_meas(0));
-    omega_msg.data.push_back(body_omega_meas(1));
-    omega_msg.data.push_back(body_omega_meas(2));
-    omega_pub_->publish(omega_msg);    
-
-
-    
-  // ✅ 상태 출력 추가 (topic echo 느낌)
-  RCLCPP_INFO(this->get_logger(),
-              "POSE   [%.3f %.3f %.3f] [%.3f %.3f %.3f %.3f]",
-              global_xyz_meas[0], global_xyz_meas[1], global_xyz_meas[2],
-              global_quat_meas[0], global_quat_meas[1], global_quat_meas[2], global_quat_meas[3]);
-
-  RCLCPP_INFO(this->get_logger(),
-              "ACC    [%.3f %.3f %.3f]",
-              global_xyz_acc(0), global_xyz_acc(1), global_xyz_acc(2));
-
-  RCLCPP_INFO(this->get_logger(),
-              "VEL    [%.3f %.3f %.3f]",
-              global_xyz_vel_meas(0), global_xyz_vel_meas(1), global_xyz_vel_meas(2));
-
-  RCLCPP_INFO(this->get_logger(),
-              "THRUST [%.3f %.3f %.3f]",
-              thrust_data_(0), thrust_data_(1), thrust_data_(2));
-
-  RCLCPP_INFO(this->get_logger(),
-              "OMEGA  [%.3f %.3f %.3f] (rad/s)",
-              body_omega_meas(0), body_omega_meas(1), body_omega_meas(2));
-    
   }
 
   // Timer: Publishing
@@ -240,6 +268,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
   rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_vel_subscriber_;
   rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_thrust_subscriber_;
+  rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_torque_subscriber_;
 
   // Publishers
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
@@ -247,16 +276,21 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr vel_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr thrust_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr omega_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr alpha_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr torque_pub_;
 
   // Timer
   rclcpp::TimerBase::SharedPtr timer_;
 
   // Internal Data (Eigen)
   Eigen::VectorXd global_xyz_meas = Eigen::VectorXd::Zero(3);
+  Eigen::VectorXd global_xyz_meas_prev = Eigen::VectorXd::Zero(3);
   Eigen::VectorXd global_quat_meas = Eigen::VectorXd::Zero(4);
 
   Eigen::VectorXd global_xyz_vel_meas = Eigen::VectorXd::Zero(3);
-  Eigen::VectorXd global_xyz_vel_dot_raw = Eigen::VectorXd::Zero(3);
+  Eigen::VectorXd body_xyz_vel_meas = Eigen::VectorXd::Zero(3);
+
+Eigen::VectorXd global_xyz_vel_dot_raw = Eigen::VectorXd::Zero(3);
   Eigen::VectorXd global_xyz_vel_meas_prev = Eigen::VectorXd::Zero(3);
   Eigen::VectorXd global_xyz_acc = Eigen::VectorXd::Zero(3);
   Eigen::VectorXd body_xyz_acc = Eigen::VectorXd::Zero(3);
@@ -269,15 +303,20 @@ private:
 
   Eigen::VectorXd body_omega_dot_raw = Eigen::VectorXd::Zero(3);
   Eigen::VectorXd body_omega_prev = Eigen::VectorXd::Zero(3);
-  Eigen::VectorXd body_alpha_meas = Eigen::VectorXd::Zero(3);
   Eigen::VectorXd body_omega_meas = Eigen::VectorXd::Zero(3);
 
+  Eigen::VectorXd body_alpha_meas = Eigen::VectorXd::Zero(3);
+  Eigen::VectorXd body_alpha_prev = Eigen::VectorXd::Zero(3);
+  Eigen::VectorXd body_alpha_raw = Eigen::VectorXd::Zero(3);
 
 
   Eigen::Vector3d thrust_data_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d torque_data_{Eigen::Vector3d::Zero()};
+  
 
   Eigen::Matrix3d R_B;
 
+  FilteredVector global_xyz_meas_dot_filter;
   FilteredVector body_rpy_meas_dot_filter;
   FilteredVector body_omega_dot_filter;  
   FilteredVector global_xyz_vel_dot_filter;
