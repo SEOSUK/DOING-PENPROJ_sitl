@@ -142,18 +142,14 @@ private:
 
   void normal_vector_estimation()
   {
-      // ✅ bias_weight는 함수 내부에 정의되어야 합니다
-      Eigen::Vector3d bias_weight{0, 0.1, 0}; // 각 방향 성분별 영향 비율
-      Eigen::Vector3d global_force_meas_unit = global_force_meas.normalized();
-      Eigen::Vector3d force_bias = global_force_meas_unit.cwiseProduct(bias_weight);
 
       if (estimation_flag)
       {
-          double alpha = ((global_force_meas + force_bias).dot(global_EE_xyz_vel_meas)) / 
+          double alpha = (global_force_meas.dot(global_EE_xyz_vel_meas)) / 
                         (global_EE_xyz_vel_meas.dot(global_EE_xyz_vel_meas));
 
           global_EE_force_normal_meas = normal_vector_filter.apply(
-              (global_force_meas + force_bias) - alpha * global_EE_xyz_vel_meas
+              global_force_meas - alpha * global_EE_xyz_vel_meas
           );
 
           global_xi = global_EE_force_normal_meas - global_force_des;

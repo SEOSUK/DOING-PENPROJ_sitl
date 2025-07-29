@@ -106,6 +106,7 @@ private:
     latest_wrench_.torque.z = msg.torque().z();
   }
 
+
   void timerCallback()
   {
     geometry_msgs::msg::Wrench filtered;
@@ -125,9 +126,21 @@ private:
     Eigen::Vector3d f_body(filtered.force.x, filtered.force.y, filtered.force.z);
     Eigen::Vector3d t_body(filtered.torque.x, filtered.torque.y, filtered.torque.z);
 
-    Eigen::Vector3d f_global = R_B * f_body;
+    // 2. 단위벡터
+    Eigen::Vector3d f_body_unit = f_body.normalized();
+
+    // 3. 방향성 바이어스 (예: 가중치 방식 또는 원하는 벡터)
+    Eigen::Vector3d bias_weight(0, 0.1, 0.1);
+    Eigen::Vector3d direction_biased = f_body_unit + bias_weight;
+
+    // 4. 정규화 후, 원래 크기로 다시 스케일링
+    Eigen::Vector3d f_body_biased = f_body.norm() * direction_biased.normalized();
+
+    Eigen::Vector3d f_global = R_B * f_body_biased;
     Eigen::Vector3d t_global = R_B * t_body;
 
+
+    
     geometry_msgs::msg::Wrench wrench_global;
     wrench_global.force.x = f_global.x();
     wrench_global.force.y = f_global.y();
