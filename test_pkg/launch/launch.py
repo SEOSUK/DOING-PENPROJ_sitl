@@ -66,9 +66,9 @@ def launch_setup(context, *args, **kwargs):
     if simulation_enabled:
         wrench_node = Node(
             package='test_pkg',
-            executable='wrench_bridge',
-            name='wrench_bridge',
-            parameters=[load_node_params(config_file, 'wrench_bridge')],
+            executable='wrench_observer',
+            name='wrench_observer',
+            parameters=[load_node_params(config_file, 'wrench_observer')],
             output='screen'
         )
     else:

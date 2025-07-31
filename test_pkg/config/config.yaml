@@ -17,7 +17,7 @@ trajectory_generator:
     numerical_calc_loop_hz: 50.0
     force_lpf_cof: 3.0
     normal_vector_estimator_lpf_cof: 3.0
-    surface_tracking: true
+    surface_tracking: false
 
 data_decryptor:
   ros__parameters:
@@ -35,7 +35,7 @@ wrench_observer:
     Center_of_mass_bar: [0.1, 0.1, 0.1] #DOB Scale Factor
     mass_bar: 0.0001                            #DOB Scale Factor        
     Momentum_of_inertia_drone: [0.1, 0.1, 0.1] #DOB Scale Factor
-    mass_drone: 0.047 #DOB Scale Factor
+    mass: 0.0394 #DOB Scale Factor
 
     force_dob_fc: 5.0
     Tau_dob_fc: 5.0

@@ -39,9 +39,9 @@ robot_types:
         MJ_velocity:
           frequency: 100
           vars: ["kalman.statePX", "kalman.statePY", "kalman.statePZ"]   
-        # MJ_Command_thrust:
-        #   frequency: 100 # Hz
-        #   vars: [controller.cmd_thrust]
+        MJ_Command_thrust:
+          frequency: 100 # Hz
+          vars: [controller.cmd_thrust]
         SEUK_pid_rate_cmd:
           frequency: 100
           vars: ["SU_pid_rate_cmd.roll_cmd", "SU_pid_rate_cmd.pitch_cmd", "SU_pid_rate_cmd.yaw_cmd"]          

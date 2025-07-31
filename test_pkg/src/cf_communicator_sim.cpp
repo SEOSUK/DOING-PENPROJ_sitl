@@ -21,7 +21,16 @@ public:
   body_omega_dot_filter(3, 1, 1.0 / 50),
   global_xyz_vel_dot_filter(3, 1, 1.0 / 50),  
   global_xyz_meas_dot_filter(3, 1, 1.0 / 50),
-  body_rpy_meas_dot_filter(3, 1, 1.0 / 50)
+  body_rpy_meas_dot_filter(3, 1, 1.0 / 50),
+  thrust_data_filter(3, 1, 1.0 / 50)
+// 두 번째 인자가 cof이다.
+// cof를 늘리면(숫자를 키우면) delay가 줄어들고 노이즈가 커진다.
+// cof를 줄이면(숫자를 줄아ㅣ면) 그 반대이다.
+
+// 지금 sensor data의 딜레이가 어마무시하잖아??
+// 그러니, 1. cof 튜닝 야물딱지게 하기.
+// 2번: mob 결과에다가 low pass filter를 걸어서, phase를 끼워맞추기.
+
   {
     rclcpp::QoS qos_settings = rclcpp::QoS(rclcpp::KeepLast(10))
                                   .reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE)
@@ -99,9 +108,9 @@ private:
 
 
     std_msgs::msg::Float64MultiArray thrust_msg;
-    thrust_msg.data.push_back(thrust_data_(0));
-    thrust_msg.data.push_back(thrust_data_(1));
-    thrust_msg.data.push_back(thrust_data_(2));
+    thrust_msg.data.push_back(global_command_Force[0]);
+    thrust_msg.data.push_back(global_command_Force[1]);
+    thrust_msg.data.push_back(global_command_Force[2]);
     thrust_pub_->publish(thrust_msg);
 
     std_msgs::msg::Float64MultiArray omega_msg;
@@ -210,8 +219,10 @@ private:
   // Callback: Thrust
   void cf_thrust_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
   {
-    for (size_t i = 0; i < 3; ++i)
-      thrust_data_(i) = msg->values[i];
+      thrust_data_raw[2] = msg->values[0];
+      thrust_data_ = thrust_data_filter.apply(thrust_data_raw);
+
+      global_command_Force = R_B * thrust_data_ / 100000.0;
   }
 
   void cf_torque_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
@@ -311,8 +322,9 @@ Eigen::VectorXd global_xyz_vel_dot_raw = Eigen::VectorXd::Zero(3);
 
 
   Eigen::Vector3d thrust_data_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d thrust_data_raw{Eigen::Vector3d::Zero()};
   Eigen::Vector3d torque_data_{Eigen::Vector3d::Zero()};
-  
+  Eigen::Vector3d global_command_Force{Eigen::Vector3d::Zero()};
 
   Eigen::Matrix3d R_B;
 
@@ -320,6 +332,7 @@ Eigen::VectorXd global_xyz_vel_dot_raw = Eigen::VectorXd::Zero(3);
   FilteredVector body_rpy_meas_dot_filter;
   FilteredVector body_omega_dot_filter;  
   FilteredVector global_xyz_vel_dot_filter;
+  FilteredVector thrust_data_filter;
   double prev_yaw, yaw_offset, yaw_continuous;
   double control_loop_hz, control_loop_period;
 
