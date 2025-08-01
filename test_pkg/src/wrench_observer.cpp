@@ -113,6 +113,7 @@ public:
     {
         if ((this->now() - start_time_).seconds() < 5.0) {
             RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Waiting for MOB stabilization...");
+        momentum_p_hat = momentum_p;
             return;
         }
 
@@ -478,10 +479,11 @@ public:
                        desired_torque;
 
 
-    general_vel <<     global_vel_meas,
+    general_vel <<     global_xyz_vel_meas,
                        body_omega_meas;
 
-
+    general_vel_dot <<    global_acc_meas,
+                             vec_zero;
         
     // MCG 정의
 
@@ -501,26 +503,23 @@ public:
 
     //MOB 구현
 
-    double K_0 = 0.001;
+    double K_0 = 1;
     double dt = 1.0 / control_loop_hz;
 
 
     momentum_p = MCG_M * general_vel;
-    momentum_p_dot_hat = wrench_u - MCG_C - MCG_G + ext_wrench_hat_prev;
+    momentum_p_dot = (momentum_p - momentum_p_prev) / dt;
+    momentum_p_prev = momentum_p;
+    momentum_p_dot_hat = wrench_u - MCG_C - MCG_G + ext_wrench_hat;
     momentum_p_hat += momentum_p_dot_hat * dt;
-
-
     //Update values
-    ext_wrench_dot_hat = K_0 * (momentum_p - momentum_p_hat);
+    ext_wrench_dot_hat = K_0 * (momentum_p_dot - momentum_p_dot_hat);
     ext_wrench_hat += ext_wrench_dot_hat * dt;
 
 
 
     //Compare
     //M * \dot{q} + C * q + G = u
-
-    general_vel_dot <<    global_acc_meas,
-                             vec_zero;
 
 
     MCG_dyn = MCG_M * general_vel_dot + MCG_C + MCG_G;
@@ -610,6 +609,8 @@ public:
     Eigen::Matrix<double, 6, 6> MCG_M;
     Eigen::Matrix<double, 3, 3> J_O;
     Eigen::Matrix<double, 6, 1> momentum_p;
+    Eigen::Matrix<double, 6, 1> momentum_p_prev;
+    Eigen::Matrix<double, 6, 1> momentum_p_dot;
     Eigen::Matrix<double, 6, 1> momentum_p_dot_hat;
     Eigen::Matrix<double, 6, 1> momentum_p_hat;
     Eigen::Matrix<double, 6, 1> ext_wrench_dot_hat;
