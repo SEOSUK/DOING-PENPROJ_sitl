@@ -503,23 +503,15 @@ public:
 
     //MOB 구현
 
-    double K_0 = 1;
+    double K_0 = 10;
+    double gamma = 1;
     double dt = 1.0 / control_loop_hz;
-
+    
 
     momentum_p = MCG_M * general_vel;
-    momentum_p_dot = (momentum_p - momentum_p_prev) / dt;
-    momentum_p_prev = momentum_p;
+    ext_wrench_hat = K_0 * (momentum_p - momentum_p_hat);
     momentum_p_dot_hat = wrench_u - MCG_C - MCG_G + ext_wrench_hat;
     momentum_p_hat += momentum_p_dot_hat * dt;
-    //Update values
-    ext_wrench_dot_hat = K_0 * (momentum_p_dot - momentum_p_dot_hat);
-    ext_wrench_hat += ext_wrench_dot_hat * dt;
-
-
-
-    //Compare
-    //M * \dot{q} + C * q + G = u
 
 
     MCG_dyn = MCG_M * general_vel_dot + MCG_C + MCG_G;
