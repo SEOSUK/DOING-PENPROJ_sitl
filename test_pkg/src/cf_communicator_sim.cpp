@@ -19,7 +19,7 @@ class CfCommunicatorSIM : public rclcpp::Node
 public:
   CfCommunicatorSIM() : Node("cf_communicator_sim"),
   body_omega_dot_filter(3, 1, 1.0 / 50),
-  global_xyz_vel_dot_filter(3, 1, 1.0 / 50),  
+  global_xyz_vel_dot_filter(3, 1, 1.0 / 50),
   global_xyz_meas_dot_filter(3, 1, 1.0 / 50),
   body_rpy_meas_dot_filter(3, 1, 1.0 / 50),
   thrust_data_filter(3, 1, 1.0 / 50)
@@ -56,7 +56,7 @@ public:
 
     cf_torque_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
       "/cf2/SEUK_pid_rate_cmd", qos_settings,
-      std::bind(&CfCommunicatorSIM::cf_torque_callback, this, _1));      
+      std::bind(&CfCommunicatorSIM::cf_torque_callback, this, _1));
 
     // Publishers
     pose_pub_    = this->create_publisher<geometry_msgs::msg::PoseStamped>("/pen/pose", qos_settings);
@@ -117,21 +117,21 @@ private:
     omega_msg.data.push_back(body_omega_meas(0));
     omega_msg.data.push_back(body_omega_meas(1));
     omega_msg.data.push_back(body_omega_meas(2));
-    omega_pub_->publish(omega_msg);    
+    omega_pub_->publish(omega_msg);
 
     std_msgs::msg::Float64MultiArray alpha_msg;
     alpha_msg.data.push_back(body_alpha_meas(0));
     alpha_msg.data.push_back(body_alpha_meas(1));
     alpha_msg.data.push_back(body_alpha_meas(2));
-    alpha_pub_->publish(alpha_msg);      
+    alpha_pub_->publish(alpha_msg);
 
     std_msgs::msg::Float64MultiArray torque_msg;
     torque_msg.data.push_back(torque_data_(0));
     torque_msg.data.push_back(torque_data_(1));
     torque_msg.data.push_back(torque_data_(2));
-    torque_pub_->publish(torque_msg);      
+    torque_pub_->publish(torque_msg);
 
-    
+
   // // ✅ 상태 출력 추가 (topic echo 느낌)
   // RCLCPP_INFO(this->get_logger(),
   //             "POSE   [%.3f %.3f %.3f] [%.3f %.3f %.3f %.3f]",
@@ -153,7 +153,7 @@ private:
   // RCLCPP_INFO(this->get_logger(),
   //             "OMEGA  [%.3f %.3f %.3f] (rad/s)",
   //             body_omega_meas(0), body_omega_meas(1), body_omega_meas(2));
-    
+
   }
 
 
@@ -212,7 +212,7 @@ private:
   {
     for (size_t i = 0; i < 3; ++i)
       body_xyz_vel_meas(i) = msg->values[i];
-    
+
     global_xyz_vel_meas = R_B * body_xyz_vel_meas;
   }
 
@@ -258,7 +258,7 @@ private:
                                     0, sin_roll / cos_pitch, cos_roll / cos_pitch;
 
     body_omega_meas = omega_eulerRate_Mapping_matrix * body_rpy_meas_dot;
-    
+
     body_omega_dot_raw = (body_omega_meas - body_omega_prev) * control_loop_hz;
     body_alpha_meas = body_omega_dot_filter.apply(body_omega_dot_raw);
     body_omega_prev = body_omega_meas;
@@ -330,7 +330,7 @@ Eigen::VectorXd global_xyz_vel_dot_raw = Eigen::VectorXd::Zero(3);
 
   FilteredVector global_xyz_meas_dot_filter;
   FilteredVector body_rpy_meas_dot_filter;
-  FilteredVector body_omega_dot_filter;  
+  FilteredVector body_omega_dot_filter;
   FilteredVector global_xyz_vel_dot_filter;
   FilteredVector thrust_data_filter;
   double prev_yaw, yaw_offset, yaw_continuous;

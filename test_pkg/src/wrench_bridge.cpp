@@ -44,7 +44,7 @@ public:
     gz_node_.Subscribe("/gz/EE_forcetorque", &GzToRosWrenchBridge::gzCallback, this);
 
 
-    publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/ee/force_wrench", 10);
+    publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/pen/wrench_estimation", 10);
 
     cf_pose_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
       "/cf2/pose", qos_settings,  // Topic name and QoS depth

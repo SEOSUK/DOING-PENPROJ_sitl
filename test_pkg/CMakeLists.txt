@@ -210,8 +210,9 @@ ament_target_dependencies(data_logging
   rosbag2_cpp
   geometry_msgs
   std_msgs
-  turtlesim
   crazyflie_interfaces
+  tf2
+  tf2_ros
 )
 
 install(TARGETS
@@ -232,6 +233,8 @@ ament_target_dependencies(cf_communicator
   geometry_msgs
   std_msgs
   crazyflie_interfaces
+  tf2
+  tf2_ros
 )
 
 install(TARGETS
@@ -270,7 +273,7 @@ ${EIGEN3_INCLUDE_DIR}
 target_link_libraries(cf_communicator_sim ButterworthFilter)
 
 # WRENCH_OBSERVER
-add_executable(wrench_observer src/wrench_observer.cpp)
+add_executable(wrench_observer src/wrench_observer.cpp src/ButterworthFilter.cpp)
 ament_target_dependencies(wrench_observer
   rclcpp
   std_msgs
@@ -285,6 +288,8 @@ install(TARGETS
   wrench_observer
   DESTINATION lib/${PROJECT_NAME}
 )
+
+target_link_libraries(wrench_observer ButterworthFilter)
 
 target_include_directories(wrench_observer PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

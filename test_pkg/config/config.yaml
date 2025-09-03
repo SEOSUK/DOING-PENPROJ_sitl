@@ -1,6 +1,6 @@
 global_config:
   ros__parameters:
-    Simulation: true
+    Simulation: false
     Inverse_Kinematics: true
 
 su_fkik:
@@ -12,7 +12,7 @@ su_fkik:
 trajectory_generator:
   ros__parameters:
     position_delta_cmd: [0.1, 0.1, 0.1, 0.1]
-    force_delta_cmd: 0.003
+    force_delta_cmd: 0.001
     control_loop_hz: 200.0
     numerical_calc_loop_hz: 50.0
     force_lpf_cof: 3.0
@@ -27,19 +27,16 @@ wrench_bridge:
   ros__parameters:
     control_loop_hz: 100.0
     cutoff_freq: 5.0
-    
+
 wrench_observer:
   ros__parameters:
     control_loop_hz: 200.0
-    Momentum_of_inertia_bar: [0.1, 0.1, 0.1] #DOB Scale Factor
-    Center_of_mass_bar: [0.1, 0.1, 0.1] #DOB Scale Factor
-    mass_bar: 0.0001                            #DOB Scale Factor        
-    Momentum_of_inertia_drone: [0.1, 0.1, 0.1] #DOB Scale Factor
-    mass: 0.0394 #DOB Scale Factor
-
+    Momentum_of_inertia: [0.0001, 0.0001, 0.0002]  #0819 튜닝 for MOB
+    mass: 0.047 # 0819 튜닝 for MOB
+    End_Effector_Offset: [0.075, 0.0, 0.02]
     force_dob_fc: 5.0
     Tau_dob_fc: 5.0
-    com_offset: [0.1, 0.1, 0.1]
+    K_0: 3.0
 
 su_rviz:
   ros__parameters:
@@ -47,8 +44,8 @@ su_rviz:
 
 cf_communicator:
   ros__parameters:
-    control_loop_hz: 100.0
-    num_control_loop_hz: 50.0
+    control_loop_hz: 200.0
+    num_control_loop_hz: 80.0
 
 cf_communicator_sim:
   ros__parameters:

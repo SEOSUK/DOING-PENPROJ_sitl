@@ -1,0 +1,50 @@
+<?xml version="1.0" ?>
+<robot name="manipulator">
+  <!-- Link Definitions -->
+  <link name="world"/>
+
+  <joint name="world_to_drone" type="fixed">
+    <parent link="world"/>
+    <child link="cf2_visual"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/> <!-- World 좌표계와 동일 -->
+  </joint>
+  
+<link name="cf2_visual">
+  <inertial>
+    <origin xyz="0 0 0" rpy="0 0 0"/> <!-- Center of mass adjustment -->
+    <mass value="1"/>
+    <inertia ixx="0.032" ixy="0" ixz="0" iyy="0.032" iyz="0" izz="0.00012"/>
+  </inertial>
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/> <!-- Center of mass adjustment -->  
+    <geometry>
+        <mesh filename="package://test_pkg/models/meshes/crazyflie.dae" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </visual>
+</link>
+
+
+
+  <!-- 직육면체 링크 -->
+  <link name="box_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <!-- x=0.1, y=1, z=0.8 [m] -->
+        <box size="0.01 2 1"/>
+      </geometry>
+      <!-- 선택: 색상 -->
+      <material name="gray">
+        <color rgba="0.6 0.6 0.6 0.4"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- 월드에 고정: 초기 위치 (2, 2, 2) -->
+  <joint name="world_to_box" type="fixed">
+    <parent link="world"/>
+    <child link="box_link"/>
+    <origin xyz="1.18 0 1." rpy="0 0 0"/>
+  </joint>
+
+</robot>

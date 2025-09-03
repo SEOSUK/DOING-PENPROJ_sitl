@@ -28,6 +28,7 @@ public:
                                       .reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE)
                                       .durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
 
+        inverse_kinematics_Flag = this->declare_parameter<bool>("Inverse_Kinematics", true);
 
         //PUBLISHER GROUP
         cf_vel_arrow_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>(
@@ -75,12 +76,12 @@ public:
           std::bind(&su_rviz::Chat_rpy_callback, this, std::placeholders::_1));
 
         force_subscriber_ = this->create_subscription<geometry_msgs::msg::Wrench>(
-          "/ee/force_wrench", qos_settings,
+          "/pen/wrench_estimation", qos_settings,
           std::bind(&su_rviz::force_callback, this, std::placeholders::_1));
 
 
         global_EE_force_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-          "/pen/global_EE_force", qos_settings,
+          "/pen/global_EE_des_force", qos_settings,
           std::bind(&su_rviz::global_EE_force_callback, this, std::placeholders::_1));
 
           global_normal_hat_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
@@ -105,7 +106,7 @@ public:
 
         cf_xyz_cmd_tf_publisher();   //Crazyflie cmd position 시각화
 
-        // cf_pose_tf_publisher();   //Crazyflie position 시각화  이거 안쏴도 firmware에서 자동으로 쏴줌
+        cf_pose_tf_publisher();   //Crazyflie position 시각화  이거 안쏴도 firmware에서 자동으로 쏴줌
         cf_vel_arrow_publisher();    // crazyflie velocity 시각화
         Normal_vector_estim_arrow_publisher();   //Normal Vector
 
@@ -126,13 +127,21 @@ public:
           global_xyz_quat[2] = msg->pose.orientation.z;
           global_xyz_quat[3] = msg->pose.orientation.w;
 
-
+          // === 무시 조건: 쿼터니언이 항등자세(0,0,0,1)이면 return ===
+          if (fabs(global_xyz_quat[0]) < 1e-6 &&
+              fabs(global_xyz_quat[1]) < 1e-6 &&
+              fabs(global_xyz_quat[2]) < 1e-6 &&
+              fabs(global_xyz_quat[3] - 1.0) < 1e-6) {
+              RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                                  "Received identity quaternion -> ignored");
+              return; // 이후 로직 무시
+          }
 
           tf2::Quaternion quat(
-              msg->pose.orientation.x,
-              msg->pose.orientation.y,
-              msg->pose.orientation.z,
-              msg->pose.orientation.w
+              global_xyz_quat[0],
+              global_xyz_quat[1],
+              global_xyz_quat[2],
+              global_xyz_quat[3]
           );
 
           tf2::Matrix3x3 mat(quat);
@@ -154,10 +163,12 @@ public:
           body_rpy_meas[2] = yaw_continuous;
 
           // 회전행렬 업데이트
-          for (int i = 0; i < 3; ++i)
-            for (int j = 0; j < 3; ++j)
-              R_B(i, j) = mat[i][j];
+          tf2::Vector3 row0 = mat.getRow(0), row1 = mat.getRow(1), row2 = mat.getRow(2);
+          R_B << row0.x(), row0.y(), row0.z(),
+                row1.x(), row1.y(), row1.z(),
+                row2.x(), row2.y(), row2.z();
       }
+
 
     void cf_velocity_subscriber(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
       global_xyz_vel_meas[0] = msg->data[0];
@@ -291,7 +302,7 @@ public:
         geometry_msgs::msg::TransformStamped transformStamped;
         transformStamped.header.stamp = this->now();
         transformStamped.header.frame_id = "world";
-        transformStamped.child_frame_id = "cf2";
+        transformStamped.child_frame_id = "cf2_visual";
 
         // 위치 설정
         transformStamped.transform.translation.x = global_xyz_meas[0];
@@ -519,29 +530,22 @@ public:
       marker.action = visualization_msgs::msg::Marker::ADD;
 
       geometry_msgs::msg::Point start_point, end_point;
+
       start_point.x = global_EE_xyz_meas[0];
       start_point.y = global_EE_xyz_meas[1];
       start_point.z = global_EE_xyz_meas[2];
-
+      
       end_point.x = start_point.x + global_force_meas[0] * 10;
       end_point.y = start_point.y + global_force_meas[1] * 10;
-      end_point.z = start_point.z + global_force_meas[2] * 10;
+      end_point.z = start_point.z;// + global_force_meas[2] * 10;
 
       marker.points.push_back(start_point);
       marker.points.push_back(end_point);
 
-      if(contact_flag)
-      {
+
         marker.scale.x = 0.01;
         marker.scale.y = 0.02;
         marker.scale.z = 0.02;
-      }
-      else
-      {
-        marker.scale.x = 0.00;
-        marker.scale.y = 0.00;
-        marker.scale.z = 0.00;
-      }
 
       marker.color.a = 1.0;
       marker.color.r = 1.6;
@@ -602,7 +606,7 @@ public:
 
     bool contact_flag = false;
     bool estimation_flag = false;
-
+    bool inverse_kinematics_Flag = false;
 
     double drone_yaw, yaw_offset, yaw_continuous, prev_yaw;
 };

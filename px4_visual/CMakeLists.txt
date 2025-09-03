@@ -62,6 +62,14 @@ install(DIRECTORY models/
   DESTINATION share/${PROJECT_NAME}/models
 )
 
+
+add_executable(px4_recorder src/px4_recorder.cpp)
+ament_target_dependencies(px4_recorder rclcpp std_msgs)
+
+install(TARGETS px4_recorder
+  DESTINATION lib/${PROJECT_NAME})
+
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights

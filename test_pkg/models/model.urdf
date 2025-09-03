@@ -5,11 +5,11 @@
 
   <joint name="world_to_drone" type="fixed">
     <parent link="world"/>
-    <child link="cf2"/>
+    <child link="cf2_visual"/>
     <origin xyz="0 0 0" rpy="0 0 0"/> <!-- World 좌표계와 동일 -->
   </joint>
   
-<link name="cf2">
+<link name="cf2_visual">
   <inertial>
     <origin xyz="0 0 0" rpy="0 0 0"/> <!-- Center of mass adjustment -->
     <mass value="1"/>
@@ -39,45 +39,32 @@
 
   <!-- 드론과 EE 연결 -->
   <joint name="drone_to_ee" type="fixed">
-    <parent link="cf2"/>
+    <parent link="cf2_visual"/>
     <child link="link_ee"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
     
-    <!-- 곡면 추가 -->
-    <link name="curvature_link">
+  <!-- 직육면체 링크 -->
+  <link name="box_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://test_pkg/models/meshes/curvature.dae" scale="0.01 0.02 0.02"/>
+        <!-- x=0.1, y=1, z=0.8 [m] -->
+        <box size="0.01 2 1"/>
       </geometry>
+      <!-- 선택: 색상 -->
+      <material name="gray">
+        <color rgba="0.6 0.6 0.6 0.4"/>
+      </material>
     </visual>
   </link>
 
-  <!-- 곡면을 월드에 고정-->
-  <joint name="world_to_curvature" type="fixed">
+  <!-- 월드에 고정: 초기 위치 (2, 2, 2) -->
+  <joint name="world_to_box" type="fixed">
     <parent link="world"/>
-    <child link="curvature_link"/>
-    <origin xyz="0.5 3.8 0" rpy="0 0 0"/>
+    <child link="box_link"/>
+    <origin xyz="1.18 0 1.5" rpy="0 0 0"/>
   </joint>
-
-
-  <!-- 구체 추가 -->
-  <link name="sphere_link">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://test_pkg/models/meshes/sphere.dae" scale="0.006 0.006 0.006"/>
-      </geometry>
-    </visual>
-  </link>
-
-  <!-- 구체를 월드에 고정-->
-  <joint name="world_to_sphere" type="fixed">
-    <parent link="world"/>
-    <child link="sphere_link"/>
-    <origin xyz="3 -1.2 0" rpy="0 0 0"/>
-  </joint>  
   
 </robot>

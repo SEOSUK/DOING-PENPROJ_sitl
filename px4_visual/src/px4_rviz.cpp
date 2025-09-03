@@ -82,16 +82,16 @@ public:
 
         COM_update_marker_publisher();
         COM_default_update_marker_publisher();
-        // Linear_velocity_arrow_publisher();
-        // Desired_Linear_velocity_arrow_publisher();
+        Linear_velocity_arrow_publisher();
+        Desired_Linear_velocity_arrow_publisher();
 
-        // accel_arrow_publsiher();
-        // Desired_accel_arrow_publsiher();
+        accel_arrow_publsiher();
+        Desired_accel_arrow_publsiher();
 
-        // angular_velocity_arrow_publisher();
-        // Desired_angular_velocity_arrow_publisher();
+        angular_velocity_arrow_publisher();
+        Desired_angular_velocity_arrow_publisher();
 
-        // Desired_torque_arrow_publisher();
+        Desired_torque_arrow_publisher();
       }
 
 
@@ -107,9 +107,9 @@ public:
           marker.action = visualization_msgs::msg::Marker::ADD;
 
           
-          marker.pose.position.x = com_update[0] * 10 + gravity_body[0];
-          marker.pose.position.y = com_update[1] * 10 + gravity_body[1];
-          marker.pose.position.z = com_update[2] * 10 + gravity_body[2];
+          marker.pose.position.x = com_update[0] * 10;//com_update[0] * 10 + gravity_body[0];
+          marker.pose.position.y = com_update[1] * 10;// + gravity_body[1];
+          marker.pose.position.z = com_update[2] * 10;// + gravity_body[2];
 
           marker.pose.orientation.x = 0.0;
           marker.pose.orientation.y = 0.0;
@@ -139,9 +139,9 @@ public:
           marker.type = visualization_msgs::msg::Marker::SPHERE;
           marker.action = visualization_msgs::msg::Marker::ADD;
 
-          marker.pose.position.x =  gravity_body[0];
-          marker.pose.position.y =  gravity_body[1];
-          marker.pose.position.z =  gravity_body[2];
+          marker.pose.position.x = 0;// gravity_body[0];
+          marker.pose.position.y = 0;// gravity_body[1];
+          marker.pose.position.z = 0;// gravity_body[2];
 
           marker.pose.orientation.x = 0.0;
           marker.pose.orientation.y = 0.0;
@@ -302,7 +302,7 @@ public:
       void accel_arrow_publsiher()
       {
         auto marker = visualization_msgs::msg::Marker();
-        marker.header.frame_id = "position";
+        marker.header.frame_id = "palletrone";
         marker.header.stamp = this->get_clock()->now();
         marker.ns = "acceleration";
         marker.id = 0;
@@ -315,9 +315,9 @@ public:
         start_point.z = 0;
         // RE_acceleration_filtered = alpha * RE_acceleration + (1.0 - alpha) * RE_acceleration_filtered;
 
-        end_point.x = start_point.x + acceleration[0];
-        end_point.y = start_point.y + acceleration[1];
-        end_point.z = start_point.z + acceleration[2] + 9.81;
+        end_point.x = start_point.x + acceleration[0] + gravity_body[0];
+        end_point.y = start_point.y + acceleration[1] + gravity_body[1];
+        end_point.z = start_point.z + acceleration[2] + gravity_body[2];
 
         marker.points.push_back(start_point);
         marker.points.push_back(end_point);
@@ -338,7 +338,7 @@ public:
       void Desired_accel_arrow_publsiher()
       {
         auto marker = visualization_msgs::msg::Marker();
-        marker.header.frame_id = "position";
+        marker.header.frame_id = "palletrone";
         marker.header.stamp = this->get_clock()->now();
         marker.ns = "Desired_acceleration";
         marker.id = 0;
@@ -351,9 +351,9 @@ public:
         start_point.z = 0;//position[2];
         // RE_acceleration_desired_filtered = alpha * RE_desired_acceleration + (1.0 - alpha) * RE_acceleration_desired_filtered;
 
-        end_point.x = start_point.x + desired_acceleration[0];
-        end_point.y = start_point.y + desired_acceleration[1];
-        end_point.z = start_point.z + desired_acceleration[2];
+        end_point.x = start_point.x + desired_acceleration[0] / 10;
+        end_point.y = start_point.y + desired_acceleration[1] / 10;
+        end_point.z = start_point.z + desired_acceleration[2] / 10;
 
         marker.points.push_back(start_point);
         marker.points.push_back(end_point);
@@ -493,120 +493,113 @@ public:
       // 모든 데이터는 world frame 기준으로 시각화됨
       // 따라서 body frame 기준으로 정의된 데이터는 R_B를 곱해 변환
 
-      // Position [World]
-      position[0] = msg->data[0];
-      position[1] = msg->data[1];
-      position[2] = msg->data[2];
+    // Position [World]
+    position[0] = msg->data[0];
+    position[1] = msg->data[1];
+    position[2] = msg->data[2];
 
-      desired_position[0] = msg->data[3];
-      desired_position[1] = msg->data[4];
-      desired_position[2] = msg->data[5];
+    desired_position[0] = msg->data[3];
+    desired_position[1] = msg->data[4];
+    desired_position[2] = msg->data[5];
 
-      // Linear Velocity [World]
-      linear_velocity[0] = msg->data[6];
-      linear_velocity[1] = msg->data[7];
-      linear_velocity[2] = msg->data[8];
+    // Linear Velocity [World]
+    linear_velocity[0] = msg->data[6];
+    linear_velocity[1] = msg->data[7];
+    linear_velocity[2] = msg->data[8];
 
-      desired_linear_velocity[0] = msg->data[9];
-      desired_linear_velocity[1] = msg->data[10];
-      desired_linear_velocity[2] = msg->data[11];
+    desired_linear_velocity[0] = msg->data[9];
+    desired_linear_velocity[1] = msg->data[10];
+    desired_linear_velocity[2] = msg->data[11];
 
-      // Attitude (RPY) [Body]
-      attitude[0] = msg->data[12];
-      attitude[1] = msg->data[13];
-      attitude[2] = msg->data[14];
-      set_Rotation_matrix(); // updates R_B
+    // Attitude (RPY) [Body]
+    attitude[0] = msg->data[12];
+    attitude[1] = msg->data[13];
+    attitude[2] = msg->data[14];
+    set_Rotation_matrix(); // updates R_B
 
-      desired_attitude[0] = msg->data[15];
-      desired_attitude[1] = msg->data[16];
-      desired_attitude[2] = msg->data[17];
+    desired_attitude[0] = msg->data[15];
+    desired_attitude[1] = msg->data[16];
+    desired_attitude[2] = msg->data[17];
 
-      // Angular Velocity [Body]
-      angular_velocity[0] = msg->data[18];
-      angular_velocity[1] = msg->data[19];
-      angular_velocity[2] = msg->data[20];
-      RE_angular_velocity = R_B * angular_velocity;
+    // Angular Velocity [Body]
+    angular_velocity[0] = msg->data[18];
+    angular_velocity[1] = msg->data[19];
+    angular_velocity[2] = msg->data[20];
+    RE_angular_velocity = R_B * angular_velocity;
 
-      desired_angular_velocity[0] = msg->data[21];
-      desired_angular_velocity[1] = msg->data[22];
-      desired_angular_velocity[2] = msg->data[23];
-      RE_desired_angular_velocity = R_B * desired_angular_velocity;
+    desired_angular_velocity[0] = msg->data[21];
+    desired_angular_velocity[1] = msg->data[22];
+    desired_angular_velocity[2] = msg->data[23];
+    RE_desired_angular_velocity = R_B * desired_angular_velocity;
 
-      // Desired Force [Body]
-      desired_force[0] = msg->data[24];
-      desired_force[1] = msg->data[25];
-      desired_force[2] = msg->data[26];
-      RE_desired_force = R_B * desired_force;
+    // Desired Force [Body]
+    desired_force[0] = msg->data[24];
+    desired_force[1] = msg->data[25];
+    desired_force[2] = msg->data[26];
+    RE_desired_force = R_B * desired_force;
 
-      // Desired Torque [Body]
-      desired_torque[0] = msg->data[27];
-      desired_torque[1] = msg->data[28];
-      desired_torque[2] = msg->data[29];
-      RE_desired_torque = R_B * desired_torque;
+    // Torque [Body]
+    desired_torque[0] = msg->data[27];
+    desired_torque[1] = msg->data[28];
+    desired_torque[2] = msg->data[29];
+    RE_desired_torque = R_B * desired_torque;
 
-      // Individual Motor Thrust [4 motors]
-      individual_motor_thrust[0] = msg->data[30];
-      individual_motor_thrust[1] = msg->data[31];
-      individual_motor_thrust[2] = msg->data[32];
-      individual_motor_thrust[3] = msg->data[33];
+    // tz_trim
+    tz_trim_value = msg->data[30];
 
-      // Servo Angle [4 DOF]
-      servo_angle[0] = msg->data[34];
-      servo_angle[1] = msg->data[35];
-      servo_angle[2] = msg->data[36];
-      servo_angle[3] = msg->data[37];
+    // Torque Disturbance Estimate [Body]
+    torque_dhat[0] = msg->data[31];
+    torque_dhat[1] = msg->data[32];
+    torque_dhat[2] = msg->data[33];
 
-      // Desired Servo Angle [4 DOF]
-      desired_servo_angle[0] = msg->data[38];
-      desired_servo_angle[1] = msg->data[39];
-      desired_servo_angle[2] = msg->data[40];
-      desired_servo_angle[3] = msg->data[41];
+    // Individual Motor Thrust [4 motors]
+    individual_motor_thrust[0] = msg->data[34];
+    individual_motor_thrust[1] = msg->data[35];
+    individual_motor_thrust[2] = msg->data[36];
+    individual_motor_thrust[3] = msg->data[37];
 
-      // Acceleration [Body]
-      acceleration[0] = msg->data[42];
-      acceleration[1] = msg->data[43];
-      acceleration[2] = msg->data[44];
-      RE_acceleration = R_B * acceleration;
+    // Servo Angle [5 DOF: th1~th5_act]
+    servo_angle[0] = msg->data[38];
+    servo_angle[1] = msg->data[39];
+    servo_angle[2] = msg->data[40];
+    servo_angle[3] = msg->data[41];
+    servo_angle[4] = msg->data[42]; // th5_act
 
-      // Desired Acceleration [Body]
-      desired_acceleration[0] = msg->data[45];
-      desired_acceleration[1] = msg->data[46];
-      desired_acceleration[2] = msg->data[47];
-      RE_desired_acceleration = desired_acceleration;
-      RE_desired_acceleration[2] += 80; // offset for visualization or compensator
+    // Desired Servo Angle [5 DOF: th1~th4_cmd + tray_angle_command]
+    desired_servo_angle[0] = msg->data[43];
+    desired_servo_angle[1] = msg->data[44];
+    desired_servo_angle[2] = msg->data[45];
+    desired_servo_angle[3] = msg->data[46];
+    desired_servo_angle[4] = msg->data[47]; // tray_angle_command
 
-      // CoM Estimation
-      present_com[0] = msg->data[48];
-      present_com[1] = msg->data[49];
-      present_com[2] = msg->data[50];
+    // Acceleration [Body]
+    acceleration[0] = msg->data[48];
+    acceleration[1] = msg->data[49];
+    acceleration[2] = msg->data[50];
+    RE_acceleration = R_B * acceleration;
 
-      past_com[0] = msg->data[51];
-      past_com[1] = msg->data[52];
-      past_com[2] = msg->data[53];
+    // Desired Acceleration [Body]
+    desired_acceleration[0] = msg->data[51];
+    desired_acceleration[1] = msg->data[52];
+    desired_acceleration[2] = msg->data[53];
+    RE_desired_acceleration = desired_acceleration;
 
-      com_tilde[0] = msg->data[54];
-      com_tilde[1] = msg->data[55];
-      com_tilde[2] = msg->data[56];
+    // CoM Estimation
+    present_com[0] = msg->data[54];
+    present_com[1] = msg->data[55];
+    present_com[2] = msg->data[56];
 
-      com_update[0] = msg->data[57];
-      com_update[1] = msg->data[58];
-      com_update[2] = msg->data[59];
+    past_com[0] = msg->data[57];
+    past_com[1] = msg->data[58];
+    past_com[2] = msg->data[59];
 
-      // Torque Disturbance Estimate [Body]
-      torque_dhat[0] = msg->data[60];
-      torque_dhat[1] = msg->data[61];
-      torque_dhat[2] = msg->data[62];
+    com_tilde[0] = msg->data[60];
+    com_tilde[1] = msg->data[61];
+    com_tilde[2] = msg->data[62];
 
-      // PWM Command [8 channels]
-      PWM_cmd[0] = msg->data[63];
-      PWM_cmd[1] = msg->data[64];
-      PWM_cmd[2] = msg->data[65];
-      PWM_cmd[3] = msg->data[66];
-      PWM_cmd[4] = msg->data[67];
-      PWM_cmd[5] = msg->data[68];
-      PWM_cmd[6] = msg->data[69];
-      PWM_cmd[7] = msg->data[70];
-
+    com_update[0] = msg->data[63];
+    com_update[1] = msg->data[64];
+    com_update[2] = msg->data[65];
 
     }
 
@@ -627,7 +620,7 @@ public:
       R_B = Rz * Ry * Rx;    /// Body 에서 Global로 변환해주는 Matrix이다.
                              /// Ex) [global value] = R_B * [body value]
 
-      gravity << 0, 0, -0.1;
+      gravity << 0, 0, 9.81;
       gravity_body = R_B.transpose() * gravity;
     }
 
@@ -654,46 +647,50 @@ public:
 
     // Position
     Eigen::Vector3d position;                  // data[0] ~ data[2]
-    Eigen::Vector3d desired_position;          // data[3] ~ data[5]
+    Eigen::Vector3d desired_position;           // data[3] ~ data[5]
 
     // Linear Velocity
-    Eigen::Vector3d linear_velocity;           // data[6] ~ data[8]
-    Eigen::Vector3d desired_linear_velocity;   // data[9] ~ data[11]
+    Eigen::Vector3d linear_velocity;            // data[6] ~ data[8]
+    Eigen::Vector3d desired_linear_velocity;    // data[9] ~ data[11]
 
     // Attitude (RPY)
-    Eigen::Vector3d attitude;                  // data[12] ~ data[14]
-    Eigen::Vector3d desired_attitude;          // data[15] ~ data[17]
+    Eigen::Vector3d attitude;                   // data[12] ~ data[14]
+    Eigen::Vector3d desired_attitude;           // data[15] ~ data[17]
 
     // Angular Velocity
-    Eigen::Vector3d angular_velocity;          // data[18] ~ data[20]
-    Eigen::Vector3d desired_angular_velocity;  // data[21] ~ data[23]
+    Eigen::Vector3d angular_velocity;           // data[18] ~ data[20]
+    Eigen::Vector3d desired_angular_velocity;   // data[21] ~ data[23]
 
-    // Desired Force & Torque
-    Eigen::Vector3d desired_force;             // data[24] ~ data[26]
-    Eigen::Vector3d desired_torque;            // data[27] ~ data[29]
+    // Desired Force [Body]
+    Eigen::Vector3d desired_force;              // data[24] ~ data[26]
 
-    // Individual Motor Thrust (4 motors assumed)
-    Eigen::VectorXd individual_motor_thrust = Eigen::VectorXd::Zero(4); // data[30] ~ data[33]
+    // Torque [Body]
+    Eigen::Vector3d desired_torque;             // data[27] ~ data[29]
 
-    // Servo Angles (4 DOF assumed)
-    Eigen::VectorXd servo_angle         = Eigen::VectorXd::Zero(4);     // data[34] ~ data[37]
-    Eigen::VectorXd desired_servo_angle = Eigen::VectorXd::Zero(4);     // data[38] ~ data[41]
-
-    // Acceleration
-    Eigen::Vector3d acceleration;             // data[42] ~ data[44]
-    Eigen::Vector3d desired_acceleration;     // data[45] ~ data[47]
-
-    // Center of Mass (CoM) related
-    Eigen::Vector3d present_com;              // data[48] ~ data[50]
-    Eigen::Vector3d past_com;                 // data[51] ~ data[53]
-    Eigen::Vector3d com_tilde;                // data[54] ~ data[56]
-    Eigen::Vector3d com_update;               // data[57] ~ data[59]
+    // tz_trim
+    float tz_trim_value = 0.f;                  // data[30]
 
     // Torque disturbance observer estimate
-    Eigen::Vector3d torque_dhat;              // data[60] ~ data[62]
+    Eigen::Vector3d torque_dhat;                // data[31] ~ data[33]
 
-    // PWM Command (e.g., 8 channels)
-    Eigen::VectorXd PWM_cmd = Eigen::VectorXd::Zero(8);                 // data[63] ~ data[70]
+    // Individual Motor Thrust (4 motors)
+    Eigen::VectorXd individual_motor_thrust = Eigen::VectorXd::Zero(4); // data[34] ~ data[37]
+
+    // Servo Angles (5 DOF: including th5_act)
+    Eigen::VectorXd servo_angle = Eigen::VectorXd::Zero(5);              // data[38] ~ data[42]
+
+    // Desired Servo Angles (5 DOF: including tray_angle_command)
+    Eigen::VectorXd desired_servo_angle = Eigen::VectorXd::Zero(5);      // data[43] ~ data[47]
+
+    // Acceleration
+    Eigen::Vector3d acceleration;               // data[48] ~ data[50]
+    Eigen::Vector3d desired_acceleration;       // data[51] ~ data[53]
+
+    // Center of Mass (CoM) related
+    Eigen::Vector3d present_com;                 // data[54] ~ data[56]
+    Eigen::Vector3d past_com;                    // data[57] ~ data[59]
+    Eigen::Vector3d com_tilde;                   // data[60] ~ data[62]
+    Eigen::Vector3d com_update;                  // data[63] ~ data[65]
 
     // Rotation matrices for attitude computation
     Eigen::Matrix3d Rz, Ry, Rx, R_B;

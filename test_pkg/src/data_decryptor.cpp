@@ -33,7 +33,7 @@ public:
 
     cf_pose_publisher_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("/cf2/pose", 10);
     cmd_xyz_yaw_publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/EE_des_xyzYaw", 10);
-    force_wrench_publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/ee/force_wrench", 10);
+    force_wrench_publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/pen/wrench_estimation", 10);
 
     double period_sec = (csv_data_.size() >= 2) ?
                         (csv_data_[1][0] - csv_data_[0][0]) : 0.005;

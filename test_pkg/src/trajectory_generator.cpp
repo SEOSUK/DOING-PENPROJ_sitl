@@ -52,7 +52,7 @@ trajectory_generator()
     // PUB /////////////////////////////////////////////////////
     global_EE_des_xyzYaw_publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/EE_des_xyzYaw", qos_settings);
     Chat_rpy_publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/Chat_rpy", qos_settings);
-    global_EE_force_ctrl_publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/global_EE_force", qos_settings);
+    global_EE_force_ctrl_publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/global_EE_des_force", qos_settings);
     global_normal_hat_publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/normal_hat", qos_settings);
 
 
@@ -66,7 +66,7 @@ trajectory_generator()
       std::bind(&trajectory_generator::cf_pose_subscriber, this, std::placeholders::_1));
 
     force_subscriber_ = this->create_subscription<geometry_msgs::msg::Wrench>(
-      "/ee/force_wrench", qos_settings,
+      "/pen/wrench_estimation", qos_settings,
       std::bind(&trajectory_generator::force_callback, this, std::placeholders::_1));
 
     global_EE_xyz_vel_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
@@ -83,8 +83,13 @@ trajectory_generator()
     // Timer ///////////////////////////////////////////////////////////
     timer_ = this->create_wall_timer(
       control_loop_period, std::bind(&trajectory_generator::timer_callback, this));
+    
+      R_Chat.setIdentity();
+      normal_vector_hat << 1,0,0;
+      Chat_x << 1, 0, 0;
+      Chat_y << 0, 1, 0;
+      Chat_z << 0, 0, 1;
 
-    normal_vector_hat << 1,0,0;
 
   }
 
@@ -96,10 +101,9 @@ private:
 
     if (time_real < 5) init_hovering(); // 붕 뜨기
     else if (global_des_xyzYaw[2] < 0.05) global_des_xyzYaw[2] = -1; // sudo_land
-    // external wrench observer를 여기에 하는게 나을지 fkik쪽에 넣는게 나을지 보류
     contact_check();
-    normal_vector_estimation();
-    Define_normal_frame();
+    // normal_vector_estimation();
+    // Define_normal_frame();
     admittance_control();
     surface_trajectory_generation();
 
@@ -108,33 +112,37 @@ private:
 
   void contact_check()
   {
-    
-    if (!surface_tracking_Flag)
-    {
-      surface_projection_flag = false;
-    }
-    else
-    {
-      if (global_force_meas.norm() > 0.001 &&   // 접촉 threshold
-          global_EE_xyz_vel_meas.norm() > 0.06)
-      {
-        surface_projection_flag = true;   // Surface Projection 할지말지
-      }
-      else
-      {
-        surface_projection_flag = false;
-      }
-    }
+    surface_projection_flag = false;  // 항상 미사용
+    estimation_flag = false;          // 항상 미사용
 
-    if (global_force_meas.norm() > 0.001 &&   // 접촉 threshold
-        global_EE_xyz_vel_meas.norm() > 0.06)
-    {
-      estimation_flag = true;  // 법벡추
-    }
-    else
-    {
-      estimation_flag = false;
-    }
+
+
+    // if (!surface_tracking_Flag)
+    // {
+    //   surface_projection_flag = false;
+    // }
+    // else
+    // {
+    //   if (global_force_meas.norm() > 0.001 &&   // 접촉 threshold
+    //       global_EE_xyz_vel_meas.norm() > 0.06)
+    //   {
+    //     surface_projection_flag = true;   // Surface Projection 할지말지
+    //   }
+    //   else
+    //   {
+    //     surface_projection_flag = false;
+    //   }
+    // }
+
+    // if (global_force_meas.norm() > 0.001 &&   // 접촉 threshold
+    //     global_EE_xyz_vel_meas.norm() > 0.06)
+    // {
+    //   estimation_flag = true;  // 법벡추
+    // }
+    // else
+    // {
+    //   estimation_flag = false;
+    // }
 
 
   }
@@ -145,7 +153,7 @@ private:
 
       if (estimation_flag)
       {
-          double alpha = (global_force_meas.dot(global_EE_xyz_vel_meas)) / 
+          double alpha = (global_force_meas.dot(global_EE_xyz_vel_meas)) /
                         (global_EE_xyz_vel_meas.dot(global_EE_xyz_vel_meas));
 
           global_EE_force_normal_meas = normal_vector_filter.apply(
@@ -243,42 +251,56 @@ private:
   }
 
 
-  void admittance_control() // 이라 하고 force control 이라 읽는다.
-  {
-    chat_force_meas[0] = global_force_meas.dot(normal_vector_hat); //투영한 값.
-    chat_force_error = chat_force_des - chat_force_meas;
-    chat_force_error_dot_raw = (chat_force_error - chat_force_error_prev) * control_loop_hz;
-    chat_force_error_dot = force_dot_filter.apply(chat_force_error_dot_raw);
+void admittance_control()
+{
+  chat_force_meas[0] = global_force_meas.dot(normal_vector_hat);
+  chat_force_error = chat_force_des - chat_force_meas;
+  chat_force_error_dot_raw = (chat_force_error - chat_force_error_prev) * control_loop_hz;
+  chat_force_error_dot = force_dot_filter.apply(chat_force_error_dot_raw);
 
-    chat_des_vel_adm.head(3) = virtual_damper * chat_force_error + virtual_spring * chat_force_error_dot;
-    /// 여기까지가 제어기 용이고, 아래에는 로깅을 위한 데이터 변환
-    global_force_des = R_Chat * chat_force_des;
+  chat_des_vel_adm.head(3) = virtual_damper * chat_force_error + virtual_spring * chat_force_error_dot;
 
-  }
+  // 로깅/퍼블리시용: R_Chat 미정이면 I 사용
+  Eigen::Matrix3d Rchat_safe = Eigen::Matrix3d::Identity();
+  if (R_Chat.allFinite()) Rchat_safe = R_Chat;
+  global_force_des = Rchat_safe * chat_force_des;
 
-
-  void surface_trajectory_generation()
-  {
-      global_des_vel_xyzYaw.head(3) = R_Chat * (chat_des_vel_xyzYaw.head(3) + chat_des_vel_adm.head(3));
-
-    if (surface_projection_flag)
-    {
-        global_yaw_cmd =  std::atan2(Chat_x[1], Chat_x[0]);
-        double global_error_yaw = global_yaw_cmd - body_rpy_meas[2];
-        double global_error_yaw_dot = (global_error_yaw - global_error_yaw_prev) * control_loop_hz;
-        // global_des_vel_xyzYaw[3] = 2 * global_error_yaw + 0.05 * global_error_yaw_dot;
-
-        global_des_xyzYaw += global_des_vel_xyzYaw / control_loop_hz;
-        global_des_xyzYaw[3] = global_yaw_cmd;
-      }
-    else
-    {
-      global_des_vel_xyzYaw = chat_des_vel_xyzYaw;
-      global_des_xyzYaw += global_des_vel_xyzYaw / control_loop_hz;
-    }
+  // ★ 중요: 이전 오차 업데이트
+  chat_force_error_prev = chat_force_error;
 
 
-  }
+  chat_des_vel_adm[2] = 0;
+}
+
+
+void surface_trajectory_generation()
+{
+  // // R_Chat이 아직 정의 안됐을 수 있으니 기본값 I
+  // Eigen::Matrix3d Rchat_safe = Eigen::Matrix3d::Identity();
+  // if (R_Chat.allFinite()) Rchat_safe = R_Chat;
+
+  // // admittance 적용한 선속도
+  // global_des_vel_xyzYaw.head(3) = Rchat_safe * (chat_des_vel_xyzYaw.head(3) + chat_des_vel_adm.head(3));
+
+  // if (surface_projection_flag) {
+  //   global_yaw_cmd = std::atan2(Chat_x[1], Chat_x[0]);
+  //   double global_error_yaw = global_yaw_cmd - body_rpy_meas[2];
+  //   double global_error_yaw_dot = (global_error_yaw - global_error_yaw_prev) * control_loop_hz;
+  //   global_des_xyzYaw += global_des_vel_xyzYaw / control_loop_hz;
+  //   global_des_xyzYaw[3] = global_yaw_cmd;
+  //   global_error_yaw_prev = global_error_yaw; // (옵션) 누락 방지
+  // } else {
+  //   // yaw는 사용자가 주는 명령 유지
+  //   global_des_xyzYaw.head(3) += global_des_vel_xyzYaw.head(3) / control_loop_hz;
+  // }
+  global_des_vel_xyzYaw = chat_des_vel_xyzYaw + chat_des_vel_adm;
+
+  // 표면 투영/정렬 비활성화
+  // (surface_projection_flag는 항상 false이므로 else만 실행)
+  global_des_xyzYaw += global_des_vel_xyzYaw / control_loop_hz;
+
+
+}
 
 
   void keyboard_subsciber_callback(const std_msgs::msg::String::SharedPtr msg)
@@ -429,7 +451,7 @@ private:
   bool surface_projection_flag = false;
   bool estimation_flag = false;
   bool surface_tracking_Flag = false;
-  Eigen::Matrix3d virtual_damper = (Eigen::Vector3d(5, 0, 0)).asDiagonal();
+  Eigen::Matrix3d virtual_damper = (Eigen::Vector3d(3, 0, 0)).asDiagonal();
   Eigen::Matrix3d virtual_spring = (Eigen::Vector3d(0.1, 0, 0)).asDiagonal();
 
   Eigen::Vector3d Chat_rpy;

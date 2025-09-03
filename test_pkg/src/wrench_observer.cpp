@@ -16,6 +16,8 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <geometry_msgs/msg/wrench.hpp>
 #include "geometry_msgs/msg/twist.hpp"
+#include "test_pkg/ButterworthFilter.hpp"
+#include "test_pkg/FilteredVector.hpp"
 
 using namespace std::chrono_literals;
 
@@ -24,6 +26,7 @@ class wrench_observer : public rclcpp::Node
 {
 public:
     wrench_observer() : Node("wrench_observer"),
+    general_vel_filter(6, 5, 1.0 / 200),
     tf_broadcaster_(std::make_shared<tf2_ros::TransformBroadcaster>(this))
    {
 
@@ -31,34 +34,29 @@ public:
         // FROM YAML /////////////////////////////////////////////////////
         control_loop_hz = this->declare_parameter<double>("control_loop_hz", 100.0);
         auto control_loop_period = std::chrono::duration<double>(1.0 / control_loop_hz);
+        inverse_kinematics_Flag = this->declare_parameter<bool>("Inverse_Kinematics", true);
+        K_0 = this->declare_parameter<double>("K_0", 1.0);
 
-      
 
         // 관성 모멘트 구성 (대각행렬 가정)
-        Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();        
         mass = this->declare_parameter<double>("mass", 1.0);
-        std::vector<double> Momentum_of_inertia_com = this->declare_parameter<std::vector<double>>("Momentum_of_inertia_com", {0.01, 0.01, 0.01});
-        std::vector<double> com_offset_vec = this->declare_parameter<std::vector<double>>("com_offset", {0.01, 0.01, 0.01});
 
-        Momentum_of_inertia_total = Eigen::Matrix3d::Zero();
-        Momentum_of_inertia_total.diagonal() << Momentum_of_inertia_com[0], Momentum_of_inertia_com[1], Momentum_of_inertia_com[2];
-
-
-        com_offset << com_offset_vec[0], com_offset_vec[1], com_offset_vec[2];
-        // 평행축 정리 적용
-        Eigen::Matrix3d J_O = Momentum_of_inertia_total
-                            + mass * ((com_offset.transpose() * com_offset)(0) * identity
-                            - com_offset * com_offset.transpose());
-
-        // 결과를 Vector3 형태로 저장
-        Momentum_of_inertia << J_O(0, 0), J_O(1, 1), J_O(2, 2);
+        std::vector<double> MoI_vec = this->declare_parameter<std::vector<double>>("Momentum_of_inertia", {0.01, 0.01, 0.01});
+        Momentum_of_inertia << MoI_vec[0], MoI_vec[1], MoI_vec[2];
+        MoI_Matrix.setZero();        
+        MoI_Matrix.diagonal() = Momentum_of_inertia;  // = Vector3d
         
+
+
+        std::vector<double> End_Effector_Offset_vec = this->declare_parameter<std::vector<double>>("End_Effector_Offset", {0.01, 0.01, 0.01});
+        End_Effector_Offset << End_Effector_Offset_vec[0], End_Effector_Offset_vec[1], End_Effector_Offset_vec[2];
+
         force_dob_fc = this->declare_parameter<double>("force_dob_fc", 100.0);
-        Tau_dob_fc = this->declare_parameter<double>("Tau_dob_fc", 100.0); 
+        Tau_dob_fc = this->declare_parameter<double>("Tau_dob_fc", 100.0);
 
 
         //////////////////////////////////////////////////////////////////
-        // QoS Setting ////////////////////////////////////////////////////        
+        // QoS Setting ////////////////////////////////////////////////////
         rclcpp::QoS qos_settings = rclcpp::QoS(rclcpp::KeepLast(10))
                                           .reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE)
                                           .durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
@@ -67,13 +65,10 @@ public:
 
 
         // Publisher Group ////////////////////////////////////////////////
-        external_wrench_publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/ee/force_wrench", qos_settings);
-        thrust_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/MJ_Force", qos_settings);   // 가속도곱하기 질량이랑 힘
-        global_force_meas_publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/dob_checker", qos_settings);
-        mob_ext_wrench_publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/mob_ext_wrench", qos_settings);
-        mob_wrench_publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/mob_wrench", qos_settings);
-        MCG_dyn_publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/MCG_dyn", qos_settings);
-        
+        external_wrench_publisher_ = this->create_publisher<geometry_msgs::msg::Wrench>("/pen/wrench_estimation", qos_settings);
+        test_publisher_1 = this->create_publisher<geometry_msgs::msg::Twist>("/test_1", qos_settings);
+        test_publisher_2 = this->create_publisher<geometry_msgs::msg::Twist>("/test_2", qos_settings);
+
         //SUBSCRIBER GROUP
         cf_pose_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
           "/pen/pose", qos_settings,  // Topic name and QoS depth
@@ -91,13 +86,13 @@ public:
           "/pen/omega", qos_settings,
           std::bind(&wrench_observer::cf_meas_omega_callback, this, std::placeholders::_1));
 
-        cf_thrust_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-          "/pen/thrust", qos_settings,
-          std::bind(&wrench_observer::cf_thrust_callback, this, std::placeholders::_1));
+        cf_force_input_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+          "/pen/global_SU_Force_input", qos_settings,
+          std::bind(&wrench_observer::cf_force_input_callback, this, std::placeholders::_1));
 
-        cf_desired_torque_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-          "/cf/Desired_torque", qos_settings,
-          std::bind(&wrench_observer::cf_desired_torque_callback, this, std::placeholders::_1));
+        cf_body_torque_input_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+          "/pen/body_torque_input", qos_settings,
+          std::bind(&wrench_observer::cf_torque_input_callback, this, std::placeholders::_1));
 
 
         init_dob_2nd_order();
@@ -105,7 +100,7 @@ public:
 
         timer_ = this->create_wall_timer(
           control_loop_period, std::bind(&wrench_observer::timer_callback, this));
-        
+
 }
 
     private:
@@ -122,66 +117,40 @@ public:
         data_publish();
     }
 
-    
+
     void data_publish()
       {
 
+        // 이게 제어기에 들어가는 토픽이야!
         geometry_msgs::msg::Wrench external_wrench_msg;
-        external_wrench_msg.force.x = global_force_hat[0];
-        external_wrench_msg.force.y = global_force_hat[1];
-        external_wrench_msg.force.z = global_force_hat[2];
-        external_wrench_msg.torque.x = Nominal_Force[0] - Filtered_Force[0];
-        external_wrench_msg.torque.y = Nominal_Force[1] - Filtered_Force[1];
-        external_wrench_msg.torque.z = Nominal_Force[2] - Filtered_Force[2];
+        external_wrench_msg.force.x = - ext_wrench_hat[0];
+        external_wrench_msg.force.y = - ext_wrench_hat[1];
+        external_wrench_msg.force.z = - ext_wrench_hat[2];
+        external_wrench_msg.torque.x = - ext_wrench_hat[3];
+        external_wrench_msg.torque.y = - ext_wrench_hat[4];
+        external_wrench_msg.torque.z = - ext_wrench_hat[5];
         external_wrench_publisher_->publish(external_wrench_msg);
 
+        // 0819 ma
+        geometry_msgs::msg::Twist test_1_msg;
+        test_1_msg.linear.x = ext_wrench_hat_raw[0];
+        test_1_msg.linear.y = ext_wrench_hat_raw[1];
+        test_1_msg.linear.z = ext_wrench_hat_raw[2];
+        test_1_msg.angular.x = ext_wrench_hat_raw[3];
+        test_1_msg.angular.y = ext_wrench_hat_raw[4];
+        test_1_msg.angular.z = ext_wrench_hat_raw[5];
+        test_publisher_1->publish(test_1_msg);
 
-        geometry_msgs::msg::Twist global_command_Force_msg;
-        global_command_Force_msg.linear.x = global_command_Force[0];
-        global_command_Force_msg.linear.y = global_command_Force[1];
-        global_command_Force_msg.linear.z = global_command_Force[2];
-        global_command_Force_msg.angular.x = global_force_meas[0];
-        global_command_Force_msg.angular.y = global_force_meas[1];
-        global_command_Force_msg.angular.z = global_force_meas[2];
-        thrust_publisher_->publish(global_command_Force_msg);
+        // 0819 F
+        geometry_msgs::msg::Twist test_2_msg;
+        test_2_msg.linear.x = ext_wrench_hat[0];
+        test_2_msg.linear.y = ext_wrench_hat[1];
+        test_2_msg.linear.z = ext_wrench_hat[2];
+        test_2_msg.angular.x = ext_wrench_hat[3];
+        test_2_msg.angular.y = ext_wrench_hat[4];
+        test_2_msg.angular.z = ext_wrench_hat[5];
+        test_publisher_2->publish(test_2_msg);
 
-
-        geometry_msgs::msg::Twist global_force_meas_msg;
-        global_force_meas_msg.linear.x = Nominal_Force_1nd[0];
-        global_force_meas_msg.linear.y = Nominal_Force_1nd[1];
-        global_force_meas_msg.linear.z = Nominal_Force_1nd[2];
-        global_force_meas_msg.angular.x = global_force_hat[0];
-        global_force_meas_msg.angular.y = global_force_hat[1];
-        global_force_meas_msg.angular.z = global_force_hat[2];
-        global_force_meas_publisher_->publish(global_force_meas_msg);
-
-
-        geometry_msgs::msg::Wrench mob_ext_wrench_msg;
-        mob_ext_wrench_msg.force.x = ext_wrench_hat[0];
-        mob_ext_wrench_msg.force.y = ext_wrench_hat[1];
-        mob_ext_wrench_msg.force.z = ext_wrench_hat[2];
-        mob_ext_wrench_msg.torque.x = ext_wrench_hat[3];
-        mob_ext_wrench_msg.torque.y = ext_wrench_hat[4];
-        mob_ext_wrench_msg.torque.z = ext_wrench_hat[5];
-        mob_ext_wrench_publisher_->publish(mob_ext_wrench_msg);
-
-        geometry_msgs::msg::Wrench mob_wrench_msg;
-        mob_wrench_msg.force.x = wrench_u[0];
-        mob_wrench_msg.force.y = wrench_u[1];
-        mob_wrench_msg.force.z = wrench_u[2];
-        mob_wrench_msg.torque.x = wrench_u[3];
-        mob_wrench_msg.torque.y = wrench_u[4];
-        mob_wrench_msg.torque.z = wrench_u[5];
-        mob_wrench_publisher_->publish(mob_wrench_msg);
-
-        geometry_msgs::msg::Wrench MCG_dyn_msg;
-        MCG_dyn_msg.force.x = MCG_dyn[0];
-        MCG_dyn_msg.force.y = MCG_dyn[1];
-        MCG_dyn_msg.force.z = MCG_dyn[2];
-        MCG_dyn_msg.torque.x = MCG_dyn[3];
-        MCG_dyn_msg.torque.y = MCG_dyn[4];
-        MCG_dyn_msg.torque.z = MCG_dyn[5];
-        MCG_dyn_publisher_->publish(MCG_dyn_msg);
 
       }
 
@@ -237,28 +206,24 @@ public:
     }
 
 
-    void cf_thrust_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+    void cf_force_input_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
     {
-      if (msg->data.size() < 1) {
-        RCLCPP_WARN(this->get_logger(), "Thrust msg->values is empty");
-        return;
-      }
-      global_command_Force[0] = msg->data[0];
-      global_command_Force[1] = msg->data[1];
-      global_command_Force[2] = msg->data[2];
+      global_Force_input[0] = msg->data[0];
+      global_Force_input[1] = msg->data[1];
+      global_Force_input[2] = msg->data[2];
 
     }
 
-    
-    void cf_desired_torque_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+
+    void cf_torque_input_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
     {
       if (msg->data.size() < 3) {
         RCLCPP_WARN(this->get_logger(), "Torque msg->values.size() < 3");
         return;
       }
-      desired_torque[0] = msg->data[0];
-      desired_torque[1] = msg->data[1];
-      desired_torque[2] = msg->data[2];
+      body_torque_input[0] = msg->data[0];
+      body_torque_input[1] = msg->data[1];
+      body_torque_input[2] = msg->data[2];
     }
 
 
@@ -275,7 +240,7 @@ public:
       // global_acc_meas[2] += 9.81;
       global_force_meas = mass * global_acc_meas;
     }
-      
+
 
     void cf_meas_vel_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
     {
@@ -291,7 +256,7 @@ public:
 
   void init_dob_2nd_order()
   {
-    //TO GPT: Q filter를 butterworth 2차 필터로, input을 velocity로... 
+    //TO GPT: Q filter를 butterworth 2차 필터로, input을 velocity로...
     // Pn = 1 / ms
     //------------------Force DoB P_n inv Q----------------------
 
@@ -325,7 +290,7 @@ public:
     MinvQ_C_Tauy <<  Momentum_of_inertia[1] * pow(Tau_dob_fc,2), 			0.0;
     MinvQ_C_Tauz <<  Momentum_of_inertia[2] * pow(Tau_dob_fc,2), 			0.0;
 
-    
+
     //------------------Torque DoB Q filter----------------------
     Q_A_Tau <<   -sqrt(2) * Tau_dob_fc,  - pow(Tau_dob_fc,2),
                           1.0,		               0.0;
@@ -358,7 +323,7 @@ public:
   {
     ///////////////////////////
     // -- Force DOB 1st-order -- //
-    ///////////////////////////    
+    ///////////////////////////
 
     // Nominal Side (input: measured acceleration)
     state_MinvQ_dot_Fx_1nd = MinvQ_A_F_1nd(0,0) * state_MinvQ_Fx_1nd + MinvQ_B_F_1nd(0,0) * global_acc_meas[0];
@@ -374,15 +339,15 @@ public:
     Nominal_Force_1nd[2] = MinvQ_C_F_1nd(0,0) * state_MinvQ_Fz_1nd;
 
     // Filtered Side (input: command force
-    state_Q_dot_Fx_1nd = Q_A_F_1nd(0,0) * state_Q_Fx_1nd + Q_B_F_1nd(0,0) * global_command_Force[0];
+    state_Q_dot_Fx_1nd = Q_A_F_1nd(0,0) * state_Q_Fx_1nd + Q_B_F_1nd(0,0) * global_Force_input[0];
     state_Q_Fx_1nd += state_Q_dot_Fx_1nd / control_loop_hz;
     Filtered_Force_1nd[0] = Q_C_F_1nd(0,0) * state_Q_Fx_1nd;
 
-    state_Q_dot_Fy_1nd = Q_A_F_1nd(0,0) * state_Q_Fy_1nd + Q_B_F_1nd(0,0) * global_command_Force[1];
+    state_Q_dot_Fy_1nd = Q_A_F_1nd(0,0) * state_Q_Fy_1nd + Q_B_F_1nd(0,0) * global_Force_input[1];
     state_Q_Fy_1nd += state_Q_dot_Fy_1nd / control_loop_hz;
     Filtered_Force_1nd[1] = Q_C_F_1nd(0,0) * state_Q_Fy_1nd;
 
-    state_Q_dot_Fz_1nd = Q_A_F_1nd(0,0) * state_Q_Fz_1nd + Q_B_F_1nd(0,0) * global_command_Force[2];
+    state_Q_dot_Fz_1nd = Q_A_F_1nd(0,0) * state_Q_Fz_1nd + Q_B_F_1nd(0,0) * global_Force_input[2];
     state_Q_Fz_1nd += state_Q_dot_Fz_1nd / control_loop_hz;
     Filtered_Force_1nd[2] = Q_C_F_1nd(0,0) * state_Q_Fz_1nd - mass;
 
@@ -395,7 +360,7 @@ public:
   {
     ///////////////////////////
     // -- Force DOB -- //
-    ///////////////////////////    
+    ///////////////////////////
     // [Nominal Force]
     // X_direction
     state_MinvQ_dot_Fx = MinvQ_A_F * state_MinvQ_Fx + MinvQ_B_F * global_xyz_vel_meas[0];
@@ -413,13 +378,13 @@ public:
 
     // [Filtered Force]
     // x-direction
-    state_Q_dot_Fx = Q_A_F * state_Q_Fx + Q_B_F * global_command_Force[0];
+    state_Q_dot_Fx = Q_A_F * state_Q_Fx + Q_B_F * global_Force_input[0];
     state_Q_Fx += state_Q_dot_Fx / control_loop_hz;
     // y-direction
-    state_Q_dot_Fy = Q_A_F * state_Q_Fy + Q_B_F * global_command_Force[1];
+    state_Q_dot_Fy = Q_A_F * state_Q_Fy + Q_B_F * global_Force_input[1];
     state_Q_Fy += state_Q_dot_Fy / control_loop_hz;
     // y-direction
-    state_Q_dot_Fz = Q_A_F * state_Q_Fz + Q_B_F * global_command_Force[2];
+    state_Q_dot_Fz = Q_A_F * state_Q_Fz + Q_B_F * global_Force_input[2];
     state_Q_Fz += state_Q_dot_Fz / control_loop_hz;
     // 최종정리
     Filtered_Force[0] = Q_C_F * state_Q_Fx;
@@ -431,7 +396,7 @@ public:
 
     ///////////////////////////
     // -- Torque DOB -- //
-    ///////////////////////////    
+    ///////////////////////////
     // [Nominal Torque]
     // X_direction
     state_MinvQ_dot_Taux = MinvQ_A_Tau * state_MinvQ_Taux + MinvQ_B_Tau * body_omega_meas[0];
@@ -449,13 +414,13 @@ public:
 
     // [Filtered Tau]
     // x-direction
-    state_Q_dot_Taux = Q_A_Tau * state_Q_Taux + Q_B_Tau * desired_torque[0];
+    state_Q_dot_Taux = Q_A_Tau * state_Q_Taux + Q_B_Tau * body_torque_input[0];
     state_Q_Taux += state_Q_dot_Taux / control_loop_hz;
     // y-direction
-    state_Q_dot_Tauy = Q_A_Tau * state_Q_Tauy + Q_B_Tau * desired_torque[1];
+    state_Q_dot_Tauy = Q_A_Tau * state_Q_Tauy + Q_B_Tau * body_torque_input[1];
     state_Q_Tauy += state_Q_dot_Tauy / control_loop_hz;
     // y-direction
-    state_Q_dot_Tauz = Q_A_Tau * state_Q_Tauz + Q_B_Tau * desired_torque[2];
+    state_Q_dot_Tauz = Q_A_Tau * state_Q_Tauz + Q_B_Tau * body_torque_input[2];
     state_Q_Tauz += state_Q_dot_Tauz / control_loop_hz;
     // 최종정리
     Filtered_Tau[0] = Q_C_Tau * state_Q_Taux;
@@ -475,76 +440,133 @@ public:
                       body_rpy_meas;
 
 
-    wrench_u <<      global_command_Force,
-                       desired_torque;
+    wrench_u <<      global_Force_input,
+                       body_torque_input;
 
 
     general_vel <<     global_xyz_vel_meas,
                        body_omega_meas;
 
-    general_vel_dot <<    global_acc_meas,
-                             vec_zero;
-        
+    general_vel_dot_raw = (general_vel - general_vel_prev) * control_loop_hz;
+
+    general_vel_dot = general_vel_filter.apply(general_vel_dot_raw);
+    general_vel_prev = general_vel;
+
+
     // MCG 정의
 
 
     MCG_M <<    mass * I, mat_zero,
-                 mat_zero,   J_O;
+                 mat_zero,   MoI_Matrix;
 
     MCG_C <<      vec_zero,
-                body_omega_meas.cross(J_O * body_omega_meas);
+                body_omega_meas.cross(MoI_Matrix * body_omega_meas);
 
     MCG_G <<       0,
                    0,
               mass * 9.81,
                 vec_zero;
 
-    
+    inertia_acceleration = MCG_M * general_vel_dot; // 변수명 그지같이 지어서 미안하다.. F = ma 확인하려고 하는데 거기서 나오는 ma이다...
+    //MOB 구현 0819
 
-    //MOB 구현
-
-    double K_0 = 10;
-    double gamma = 1;
     double dt = 1.0 / control_loop_hz;
-    
-
+    /////////////////////////////////////////////////////
+    // // BEFORE
     momentum_p = MCG_M * general_vel;
-    ext_wrench_hat = K_0 * (momentum_p - momentum_p_hat);
-    momentum_p_dot_hat = wrench_u - MCG_C - MCG_G + ext_wrench_hat;
+    ext_wrench_hat_raw = K_0 * (momentum_p - momentum_p_hat);
+
+
+    ext_wrench_hat_raw = ext_wrench_hat_raw.unaryExpr([](double v) {
+        if (std::abs(v) <= 0.004) {
+            return 0.0;
+        } else {
+            return v - (0.004 * ((v > 0) ? 1.0 : -1.0));
+        }
+    });
+
+
+    momentum_p_dot_hat = wrench_u - MCG_C - MCG_G + ext_wrench_hat_raw;    
     momentum_p_hat += momentum_p_dot_hat * dt;
 
 
     MCG_dyn = MCG_M * general_vel_dot + MCG_C + MCG_G;
 
 
+//////////////////////////////Wrench Conversion
+    Eigen::MatrixXd wrench_conversion_matrix(6,6);    
+    wrench_conversion_matrix.setZero();    
+
+    Eigen::Matrix3d S;
+    S <<     0,      -End_Effector_Offset(2),  End_Effector_Offset(1),
+          End_Effector_Offset(2),     0,     -End_Effector_Offset(0),
+         -End_Effector_Offset(1),  End_Effector_Offset(0),     0;    
+
+    // Top-left: Identity (Force unchanged)
+    wrench_conversion_matrix.block<3,3>(0,0) = Eigen::Matrix3d::Identity();    
+    // Top-right: -S(p_BE) * R_BW
+    wrench_conversion_matrix.block<3,3>(0,3) = Eigen::Matrix3d::Zero();
+    // Bottom-left: Zero
+    wrench_conversion_matrix.block<3,3>(3,0) = -S * R_B.transpose();    
+    // Bottom-right: Identity
+    wrench_conversion_matrix.block<3,3>(3,3) = Eigen::Matrix3d::Identity();
+
+    ext_wrench_hat = wrench_conversion_matrix * ext_wrench_hat_raw;
+//////////////////////////////FINISH
+
+
+
+    // if(true) ext_wrench_hat = wrench_conversion(ext_wrench_hat_raw);
+    // else ext_wrench_hat = ext_wrench_hat_raw;
   }
 
+  // 0819
+  Eigen::VectorXd wrench_conversion(Eigen::VectorXd ext_wrench_hat_)
+  {
+    Eigen::VectorXd EE_ext_wrench_hat_;
+    Eigen::MatrixXd wrench_conversion_matrix(6,6);    
+    wrench_conversion_matrix.setZero();    
+
+    Eigen::Matrix3d S;
+    S <<     0,      -End_Effector_Offset(2),  End_Effector_Offset(1),
+          End_Effector_Offset(2),     0,     -End_Effector_Offset(0),
+         -End_Effector_Offset(1),  End_Effector_Offset(0),     0;    
+
+    // Top-left: Identity (Force unchanged)
+    wrench_conversion_matrix.block<3,3>(0,0) = Eigen::Matrix3d::Identity();    
+    // Top-right: Zero
+    wrench_conversion_matrix.block<3,3>(0,3) = Eigen::Matrix3d::Zero();
+    // Bottom-left: -S(p_BE) * R_BW
+    wrench_conversion_matrix.block<3,3>(3,0) = -S * R_B.transpose();    
+    // Bottom-right: Identity
+    wrench_conversion_matrix.block<3,3>(3,3) = Eigen::Matrix3d::Identity();
+
+
+    return wrench_conversion_matrix * ext_wrench_hat_;
+  }
 
 
 
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Time start_time_;
 
-    rclcpp::Publisher<geometry_msgs::msg::Wrench>::SharedPtr mob_ext_wrench_publisher_;
-    rclcpp::Publisher<geometry_msgs::msg::Wrench>::SharedPtr MCG_dyn_publisher_;
-    rclcpp::Publisher<geometry_msgs::msg::Wrench>::SharedPtr mob_wrench_publisher_;
     rclcpp::Publisher<geometry_msgs::msg::Wrench>::SharedPtr external_wrench_publisher_;
-    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr thrust_publisher_;
-    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr global_force_meas_publisher_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr test_publisher_1;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr test_publisher_2;
 
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_acc_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_vel_subscriber_;
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_thrust_subscriber_;
-    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_desired_torque_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_force_input_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_body_torque_input_subscriber_;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_omega_subscriber_;
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
 
 
     Eigen::Vector3d global_xyz_vel_meas = Eigen::Vector3d::Zero();
-    Eigen::Vector3d Thrust = Eigen::Vector3d::Zero();
-    Eigen::Vector3d global_command_Force = Eigen::Vector3d::Zero();
+    Eigen::Vector3d global_Force_input = Eigen::Vector3d::Zero();
+
     Eigen::Vector3d Nominal_Force, Filtered_Force, global_force_hat;
     Eigen::Vector3d Nominal_Tau, Filtered_Tau, body_tau_hat;
 
@@ -579,7 +601,7 @@ public:
     double mass = 0;
     double control_loop_hz;
     Eigen::Vector3d Momentum_of_inertia = Eigen::Vector3d::Zero();
-    Eigen::Matrix3d Momentum_of_inertia_total = Eigen::Matrix3d::Zero();
+    Eigen::Matrix3d MoI_Matrix = Eigen::Matrix3d::Zero();
     Eigen::Vector3d com_offset = Eigen::Vector3d::Zero();
     Eigen::Vector3d body_acc_meas = Eigen::Vector3d::Zero();
     Eigen::Vector3d body_vel_meas = Eigen::Vector3d::Zero();
@@ -590,16 +612,15 @@ public:
     Eigen::Vector3d global_vel_meas;
     Eigen::Vector3d global_acc_meas;
     Eigen::Vector3d global_force_meas;
-    Eigen::Vector3d desired_torque;
+    Eigen::Vector3d body_torque_input;
     Eigen::Vector3d body_omega_meas;
     Eigen::Vector3d body_rpy_meas;
     Eigen::Vector3d vec_zero = Eigen::Vector3d::Zero();
     Eigen::Matrix3d I = Eigen::Matrix3d::Identity();
     Eigen::Matrix3d mat_zero = Eigen::Matrix3d::Zero();
-    Eigen::Matrix<double, 6, 1> state_q, wrench_u, general_vel, general_vel_dot;
+    Eigen::Matrix<double, 6, 1> state_q, wrench_u, general_vel, general_vel_dot, general_vel_prev, inertia_acceleration, general_vel_dot_raw;
     Eigen::Matrix<double, 6, 1> MCG_C, MCG_G;
     Eigen::Matrix<double, 6, 6> MCG_M;
-    Eigen::Matrix<double, 3, 3> J_O;
     Eigen::Matrix<double, 6, 1> momentum_p;
     Eigen::Matrix<double, 6, 1> momentum_p_prev;
     Eigen::Matrix<double, 6, 1> momentum_p_dot;
@@ -608,8 +629,10 @@ public:
     Eigen::Matrix<double, 6, 1> ext_wrench_dot_hat;
     Eigen::Matrix<double, 6, 1> ext_wrench_hat_prev;
     Eigen::Matrix<double, 6, 1> ext_wrench_hat;
+    Eigen::Matrix<double, 6, 1> ext_wrench_hat_raw;
     Eigen::Matrix<double, 6, 1> MCG_dyn;
-    
+
+    Eigen::Vector3d End_Effector_Offset = Eigen::Vector3d::Zero();
 
 
 
@@ -622,11 +645,13 @@ public:
     double state_MinvQ_Fx_1nd = 0.0, state_MinvQ_Fy_1nd = 0.0, state_MinvQ_Fz_1nd = 0.0;
     double state_Q_dot_Fx_1nd = 0.0, state_Q_dot_Fy_1nd = 0.0, state_Q_dot_Fz_1nd = 0.0;
     double state_MinvQ_dot_Fx_1nd = 0.0, state_MinvQ_dot_Fy_1nd = 0.0, state_MinvQ_dot_Fz_1nd = 0.0;
+    double K_0 = 0;
 
     Eigen::Vector3d Nominal_Force_1nd = Eigen::Vector3d::Zero();
     Eigen::Vector3d Filtered_Force_1nd = Eigen::Vector3d::Zero();
     Eigen::Vector3d global_force_hat_1nd = Eigen::Vector3d::Zero();
-
+    bool inverse_kinematics_Flag = false;
+    FilteredVector general_vel_filter;
 
 };
 

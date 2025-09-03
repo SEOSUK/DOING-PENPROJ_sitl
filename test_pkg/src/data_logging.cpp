@@ -1,152 +1,239 @@
-#include <chrono>
-#include <functional>
-#include <memory>
-#include <vector>
-#include <fstream>
-#include <iomanip>
-#include <ctime>
-#include <sstream>
-
-#include "rclcpp/rclcpp.hpp"
-#include "geometry_msgs/msg/pose_stamped.hpp"
-#include "geometry_msgs/msg/wrench.hpp"
-#include "std_msgs/msg/float64_multi_array.hpp"
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <crazyflie_interfaces/msg/log_data_generic.hpp>
 #include <eigen3/Eigen/Core>
 #include <eigen3/Eigen/Dense>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <functional>
+#include <chrono>
+#include <cmath>  // M_PI
+#include <limits>
 
-using namespace std::chrono_literals;
+using std::placeholders::_1;
+using steady_clk = std::chrono::steady_clock;
 
-class DataLoggerNode : public rclcpp::Node
+class DataLoggingMsg : public rclcpp::Node
 {
 public:
-  DataLoggerNode() : Node("data_logging")
+  DataLoggingMsg() : Node("data_logging_msg")
   {
-    rclcpp::QoS qos_settings = rclcpp::QoS(rclcpp::KeepLast(10))
-                                    .reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE)
-                                    .durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
+    // QoS
+      rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
+      auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 6), qos_profile);
 
-    cf_pose_subscriber_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-      "/cf2/pose", qos_settings,
-      std::bind(&DataLoggerNode::cf_pose_callback, this, std::placeholders::_1));
+    // Subscribers
+    cf_battery_voltage_subscriber_ =
+      this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
+        "/cf2/MJ_Battery", qos,
+        std::bind(&DataLoggingMsg::cf_battery_voltage_callback, this, _1));
 
-    global_xyz_cmd_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
-      "/pen/EE_des_xyzYaw", qos_settings,
-      std::bind(&DataLoggerNode::global_xyz_cmd_callback, this, std::placeholders::_1));
+    cf_SU_force_input_subscriber_ =
+      this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        "/pen/global_SU_Force_input", qos,
+        std::bind(&DataLoggingMsg::cf_force_input_callback, this, _1));
 
-    force_subscriber_ = this->create_subscription<geometry_msgs::msg::Wrench>(
-      "/ee/force_wrench", qos_settings,
-      std::bind(&DataLoggerNode::force_callback, this, std::placeholders::_1));
+    cf_MJ_force_input_subscriber_ =
+      this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        "/pen/global_MJ_Force_input", qos,
+        std::bind(&DataLoggingMsg::cf_MJ_force_input_callback, this, _1));
 
-    logging_data_publisher_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/data_logging", qos_settings);
+    cf_raw_force_input_subscriber_ =
+      this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        "/pen/global_raw_Force_input", qos,
+        std::bind(&DataLoggingMsg::cf_raw_force_input_callback, this, _1));
 
-    data_logging.resize(17);  // pose(7) + EE_des_xyzYaw(4) + force(6)
+    cf_pose_subscriber_ =
+      this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        "/pen/pose", qos,
+        std::bind(&DataLoggingMsg::cf_pose_callback, this, _1));
 
-    start_time_ = this->now();
-    create_csv_file();
+    // Publisher
+    data_logging_pub_ =
+      this->create_publisher<std_msgs::msg::Float64MultiArray>("/data_logging_msg", qos);
 
-    timer_ = this->create_wall_timer(5ms, std::bind(&DataLoggerNode::publish_callback, this));
-  }
+    // Loop (100 Hz)
+    const double control_loop_hz = 100.0;
+    auto period = std::chrono::duration<double>(1.0 / control_loop_hz);
+    timer_ = this->create_wall_timer(
+      std::chrono::duration_cast<std::chrono::milliseconds>(period),
+      std::bind(&DataLoggingMsg::control_loop, this));
 
-  ~DataLoggerNode()
-  {
-    if (csv_file_.is_open()) {
-      csv_file_.close();
-      RCLCPP_INFO(this->get_logger(), "CSV 저장 종료");
-    }
+    // 시간 기준점
+    t0_ = steady_clk::now();
   }
 
 private:
+  void cf_battery_voltage_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
+  {
+    if (!msg->values.empty()) {
+      battery_voltage_ = msg->values[0];
+      has_battery_ = true;
+    } else {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "MJ_Battery message has empty values[]");
+    }
+  }
+
+  void cf_force_input_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+    if (msg->data.size() >= 3) {
+      global_SU_force_input_[0] = msg->data[0];
+      global_SU_force_input_[1] = msg->data[1];
+      global_SU_force_input_[2] = msg->data[2];
+      has_force_ = true;
+    } else {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "global_Force_input size < 3");
+    }
+  }
+
+  void cf_MJ_force_input_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+    if (msg->data.size() >= 3) {
+      global_MJ_force_input_[0] = msg->data[0];
+      global_MJ_force_input_[1] = msg->data[1];
+      global_MJ_force_input_[2] = msg->data[2];
+      has_force_ = true;
+    } else {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "global_Force_input size < 3");
+    }
+  }  
+
+  void cf_raw_force_input_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+    if (msg->data.size() >= 3) {
+      global_raw_force_input_[0] = msg->data[0];
+      global_raw_force_input_[1] = msg->data[1];
+      global_raw_force_input_[2] = msg->data[2];
+      has_force_ = true;
+    } else {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "global_Force_input size < 3");
+    }
+  }
+
+
   void cf_pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
-    data_logging(0) = msg->pose.position.x;
-    data_logging(1) = msg->pose.position.y;
-    data_logging(2) = msg->pose.position.z;
-    data_logging(3) = msg->pose.orientation.x;
-    data_logging(4) = msg->pose.orientation.y;
-    data_logging(5) = msg->pose.orientation.z;
-    data_logging(6) = msg->pose.orientation.w;
-  }
+    // Position
+    global_xyz_meas_[0] = msg->pose.position.x;
+    global_xyz_meas_[1] = msg->pose.position.y;
+    global_xyz_meas_[2] = msg->pose.position.z;
 
-  void global_xyz_cmd_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
-  {
-    data_logging(7) = msg->data[0];
-    data_logging(8) = msg->data[1];
-    data_logging(9) = msg->data[2];
-    data_logging(10) = msg->data[3];
-  }
+    // Orientation -> roll/pitch/yaw + continuous yaw
+    const auto &qmsg = msg->pose.orientation;
 
-  void force_callback(const geometry_msgs::msg::Wrench::SharedPtr msg)
-  {
-    data_logging(11) = msg->force.x;
-    data_logging(12) = msg->force.y;
-    data_logging(13) = msg->force.z;
-    data_logging(14) = msg->torque.x;
-    data_logging(15) = msg->torque.y;
-    data_logging(16) = msg->torque.z;
-  }
-
-  void publish_callback()
-  {
-    std_msgs::msg::Float64MultiArray msg;
-    for (int i = 0; i < data_logging.size(); ++i) {
-      msg.data.push_back(data_logging(i));
+    // 간단 가드: NaN/비정상 쿼터니언 무시
+    if (!std::isfinite(qmsg.x) || !std::isfinite(qmsg.y) ||
+        !std::isfinite(qmsg.z) || !std::isfinite(qmsg.w)) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "Pose quaternion has NaN/Inf -> ignored");
+      return;
     }
-    logging_data_publisher_->publish(msg);
 
-    double t = (this->now() - start_time_).seconds();
+    tf2::Quaternion q(qmsg.x, qmsg.y, qmsg.z, qmsg.w);
+    tf2::Matrix3x3 m(q);
+    double r, p, y;
+    m.getRPY(r, p, y);
 
-    if (csv_file_.is_open()) {
-      csv_file_ << std::fixed << std::setprecision(6) << t;
-      for (int i = 0; i < data_logging.size(); ++i) {
-        csv_file_ << "," << data_logging(i);
-      }
-      csv_file_ << "\n";
-    }
+    double delta = y - prev_yaw_;
+    if (delta > M_PI)       yaw_offset_ -= 2.0 * M_PI;
+    else if (delta < -M_PI) yaw_offset_ += 2.0 * M_PI;
+
+    roll_ = r;
+    pitch_ = p;
+    yaw_ = y;
+    yaw_continuous_ = y + yaw_offset_;
+    prev_yaw_ = y;
+
+    // tf2 -> Eigen (행 단위로 복사)
+    tf2::Vector3 row0 = m.getRow(0), row1 = m.getRow(1), row2 = m.getRow(2);
+    R_B_ << row0.x(), row0.y(), row0.z(),
+            row1.x(), row1.y(), row1.z(),
+            row2.x(), row2.y(), row2.z();
   }
 
-  void create_csv_file()
+  void control_loop()
   {
-    std::string dir = std::string(std::getenv("HOME")) + "/sitl_ws/src/test_pkg/bag/";
-    std::string filename = "log_" + get_current_time_string() + ".csv";
-    std::string full_path = dir + filename;
+    // 경과 시간[s] (steady clock 기준, 단조증가)
+    timer_tick++;
+    timer_real = timer_tick / 100;
+    std_msgs::msg::Float64MultiArray out;
+    out.data.reserve(17);  // 선택: 성능 최적화
 
-    csv_file_.open(full_path);
+    // [0] time(s)
+    out.data.push_back(timer_real);
 
-    if (!csv_file_.is_open()) {
-      RCLCPP_ERROR(this->get_logger(), "CSV 파일 생성 실패: %s", full_path.c_str());
-    } else {
-      RCLCPP_INFO(this->get_logger(), "CSV 저장 시작: %s", full_path.c_str());
-      csv_file_ << "time,x,y,z,qx,qy,qz,qw,cmd_x,cmd_y,cmd_z,cmd_yaw,"
-                   "force_x,force_y,force_z,torque_x,torque_y,torque_z\n";
-    }
+    // [1] Vbat
+    out.data.push_back(battery_voltage_);
+
+    // [2..4] Fx,Fy,Fz
+    out.data.push_back(global_SU_force_input_[0]);
+    out.data.push_back(global_SU_force_input_[1]);
+    out.data.push_back(global_SU_force_input_[2]);
+
+    // [2..4] Fx,Fy,Fz
+    out.data.push_back(global_MJ_force_input_[0]);
+    out.data.push_back(global_MJ_force_input_[1]);
+    out.data.push_back(global_MJ_force_input_[2]);
+
+    // [2..4] Fx,Fy,Fz
+    out.data.push_back(global_raw_force_input_[0]);
+    out.data.push_back(global_raw_force_input_[1]);
+    out.data.push_back(global_raw_force_input_[2]);
+    
+    // [5..7] x,y,z
+    out.data.push_back(global_xyz_meas_[0]);
+    out.data.push_back(global_xyz_meas_[1]);
+    out.data.push_back(global_xyz_meas_[2]);
+
+    // [8..10] roll,pitch,yaw_cont
+    out.data.push_back(roll_);
+    out.data.push_back(pitch_);
+    out.data.push_back(yaw_continuous_);
+
+    data_logging_pub_->publish(out);
   }
 
-  std::string get_current_time_string()
-  {
-    auto now = std::chrono::system_clock::now();
-    std::time_t now_t = std::chrono::system_clock::to_time_t(now);
-    std::tm *tm_ptr = std::localtime(&now_t);
-
-    std::ostringstream oss;
-    oss << std::put_time(tm_ptr, "%m%d_%H%M%S");
-    return oss.str();
-  }
-
+  // ROS
+  rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_battery_voltage_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_raw_force_input_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_SU_force_input_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_MJ_force_input_subscriber_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
-  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr global_xyz_cmd_subscriber_;
-  rclcpp::Subscription<geometry_msgs::msg::Wrench>::SharedPtr force_subscriber_;
-  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr logging_data_publisher_;
+
+
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr data_logging_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
-  Eigen::VectorXd data_logging;
-  rclcpp::Time start_time_;
-  std::ofstream csv_file_;
+  // States
+  Eigen::Vector3d global_SU_force_input_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d global_MJ_force_input_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d global_raw_force_input_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d global_xyz_meas_    = Eigen::Vector3d::Zero();
+  Eigen::Matrix3d R_B_ = Eigen::Matrix3d::Identity();
+
+  double battery_voltage_{0.0};
+  bool has_battery_{false};
+  bool has_force_{false};
+
+  double roll_{0.0}, pitch_{0.0}, yaw_{0.0};
+  double yaw_offset_{0.0}, prev_yaw_{0.0}, yaw_continuous_{0.0};
+
+  double timer_tick;
+  double timer_real;
+
+  // 시간 기준
+  steady_clk::time_point t0_{};
 };
 
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<DataLoggerNode>());
+  rclcpp::spin(std::make_shared<DataLoggingMsg>());
   rclcpp::shutdown();
   return 0;
 }

@@ -19,7 +19,7 @@ public:
     publisher_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("/data_logging_msg", 10);
 
     // 시작 시간 (초) 설정
-    start_time_sec_ = 100;  // 예: 2.5초 이후부터 재생
+    start_time_sec_ = 20;  // 예: 2.5초 이후부터 재생
     load_csv();
     publish_loop();
   }
@@ -33,7 +33,7 @@ private:
   {
     std::string filepath = std::string(std::getenv("HOME")) +
                            "/sitl_ws/src/px4_visual/bag/" +
-                           "rosbag2_2025_06_05-00_30_34.csv";
+                           "8th.csv";
 
     std::ifstream file(filepath);
     if (!file.is_open()) {

@@ -124,13 +124,6 @@ def launch_setup(context, *args, **kwargs):
                 output='screen'
             ),
             wrench_node,
-            Node(
-                package='test_pkg',
-                executable='data_logging',
-                name='data_logging',
-                parameters=[load_node_params(config_file, 'data_decryptor')],
-                output='screen'
-            ),
             robot_state_publisher_node,
             Node(
                 package='rviz2',
