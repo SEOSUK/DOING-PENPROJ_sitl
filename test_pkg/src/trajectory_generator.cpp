@@ -14,7 +14,7 @@
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include "test_pkg/ButterworthFilter.hpp"
 #include "test_pkg/FilteredVector.hpp"
-
+#include <cmath>
 using namespace std::chrono_literals;
 
 class trajectory_generator : public rclcpp::Node
@@ -33,6 +33,10 @@ trajectory_generator()
     numerical_calc_loop_hz = this->declare_parameter<double>("numerical_calc_loop_hz", 100.0);
     auto numerical_calc_loop_period = std::chrono::duration<double>(1.0 / numerical_calc_loop_hz);
     surface_tracking_Flag = this->declare_parameter<bool>("surface_tracking", true);
+
+    
+    std::vector<double> offset_vec = this->declare_parameter<std::vector<double>>("End_Effector_Offset", {0.075, 0.0, 0.02});
+    EE_offset_d << Eigen::Vector3d(offset_vec[0], offset_vec[1], offset_vec[2]);
 
 
     force_delta_cmd = this->declare_parameter<double>("force_delta_cmd", 0.003);
@@ -64,7 +68,7 @@ trajectory_generator()
     cf_pose_subscriber_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
       "/pen/xyzrpy", qos_settings,  // Topic name and QoS depth
       std::bind(&trajectory_generator::cf_pose_subscriber, this, std::placeholders::_1));
-
+      
     force_subscriber_ = this->create_subscription<geometry_msgs::msg::Wrench>(
       "/pen/wrench_estimation", qos_settings,
       std::bind(&trajectory_generator::force_callback, this, std::placeholders::_1));
@@ -295,11 +299,70 @@ void surface_trajectory_generation()
   // }
   global_des_vel_xyzYaw = chat_des_vel_xyzYaw + chat_des_vel_adm;
 
-  // 표면 투영/정렬 비활성화
-  // (surface_projection_flag는 항상 false이므로 else만 실행)
+  // ===== ν3-based yaw command (from Nguyen–Ha–Lee 2015) =====
+  // 필요한 데이터:
+  //  - EE_offset_d[0..2] : body->EE 오프셋 (d1,d2,d3), 논문은 d2≈0 가정
+  //  - body_omega_meas[0..2] : 현재 바디 각속도 ω=[p q r]
+  //  - body_rpy_meas[0..2]   : 현재 roll(φ), pitch(θ), yaw(ψ)
+  //
+  // 절차: ω -> ν 측정 -> ν3_cmd 계산 -> ω_cmd = Σ ν_cmd -> ψ̇_cmd 계산 -> yaw 속도 명령
+  // (1) 오프셋/안전가드
+  const double dnorm = std::sqrt(EE_offset_d[0] * EE_offset_d[0] + EE_offset_d[2] * EE_offset_d[2]);
+  // 기본값(키보드 yaw 속도를 fallback)
+  double yaw_rate_cmd = chat_des_vel_xyzYaw[3];
+
+  // (2) Σ 구성 (논문 eq. (8): Σ = Σ^T = Σ^{-1})
+  Eigen::Matrix3d Sigma;
+  Sigma << - EE_offset_d[2],   0.0,  EE_offset_d[0],
+            0.0, dnorm, 0.0,
+            EE_offset_d[0],   0.0,  EE_offset_d[2];
+  Sigma /= dnorm;
+
+    // (3) ν 측정: ν = Σ^{-1} ω = Σ ω  
+  Eigen::Vector3d nu_meas = Sigma * body_omega_meas;
+
+  const double nu1 = nu_meas(0);
+  const double nu2 = nu_meas(1);
+
+
+  // (4) ν3-action (finite-time escape 방지)  
+  const double gamma = - EE_offset_d[0] / EE_offset_d[2];                 // γ = -d1/d3
+  const double ETA   = 4.0;                      // η: 튜닝(>0). 필요시 파라미터화 [tuning]
+  const double rho_nu3 = 2.0*ETA - gamma*nu2;    // ρ = 2η - γν2
+  const double eps = 0.05;                       // sgn 근사 매끄럽게 [tuning]
+  const double sgn_nu1 = (2.0/3.14159265358979323846) * std::atan(nu1/eps);
+  const double nu3_cmd = gamma * nu1 * (1.0 + nu2*nu2) + rho_nu3 * sgn_nu1;
+
+  // (5) ν_cmd → ω_cmd
+  Eigen::Vector3d nu_cmd(nu1, nu2, nu3_cmd);
+  Eigen::Vector3d omega_cmd = Sigma * nu_cmd;    // [p_cmd, q_cmd, r_cmd]
+
+
+  // (6) ω_cmd → ψ̇_cmd (ZYX: roll=φ, pitch=θ, yaw=ψ)
+  const double phi   = body_rpy_meas[0];
+  const double theta = body_rpy_meas[1];
+
+  const double p = omega_cmd(0);
+  const double q = omega_cmd(1);
+  const double r = omega_cmd(2);
+
+  // 표준 ZYX 매핑: [φ̇ θ̇ ψ̇]^T = E(φ,θ) [p q r]^T
+  // ψ̇ = (sinφ/cosθ) q + (cosφ/cosθ) r
+  double cth = std::cos(theta);
+  if (std::abs(cth) < 1e-3) cth = (cth >= 0 ? 1e-3 : -1e-3);   // 특이점 보호
+  yaw_rate_cmd = (std::sin(phi)/cth) * q + (std::cos(phi)/cth) * r;
+
+  const double YAW_RATE_LIMIT = 1.0;
+  yaw_rate_cmd = std::clamp(yaw_rate_cmd, -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
+
+  global_des_vel_xyzYaw[3] = yaw_rate_cmd;    
+
   global_des_xyzYaw += global_des_vel_xyzYaw / control_loop_hz;
 
 
+//   ETA: 내부 동역학 안정화를 얼마나 강하게 할지 결정하는 게인 파라미터.
+
+//   eps: sgn 근사에서 사용되는 스무딩 계수, 노이즈/진동을 줄이는 역할.
 }
 
 
@@ -435,6 +498,10 @@ void surface_trajectory_generation()
   Eigen::Vector3d global_xi = Eigen::Vector3d::Zero();
 
 
+
+  Eigen::Vector3d EE_offset_d;
+
+
   Eigen::Vector3d global_EE_xyz_vel_meas;
 
   double time_cnt;
@@ -451,8 +518,8 @@ void surface_trajectory_generation()
   bool surface_projection_flag = false;
   bool estimation_flag = false;
   bool surface_tracking_Flag = false;
-  Eigen::Matrix3d virtual_damper = (Eigen::Vector3d(3, 0, 0)).asDiagonal();
-  Eigen::Matrix3d virtual_spring = (Eigen::Vector3d(0.1, 0, 0)).asDiagonal();
+  Eigen::Matrix3d virtual_damper = (Eigen::Vector3d(3, 0, 0)).asDiagonal(); // 이게 커지면 수렴이 느리지만 조금 안정적일 수 있음
+  Eigen::Matrix3d virtual_spring = (Eigen::Vector3d(0.1, 0, 0)).asDiagonal(); //이게 커지면 수렴이 빠르지만 불안정해질 수 잇음.
 
   Eigen::Vector3d Chat_rpy;
 
