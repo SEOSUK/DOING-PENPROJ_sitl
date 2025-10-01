@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cmath>  // M_PI
 #include <limits>
+#include <geometry_msgs/msg/wrench.hpp>
+
 
 using std::placeholders::_1;
 using steady_clk = std::chrono::steady_clock;
@@ -34,11 +36,6 @@ public:
         "/pen/global_SU_Force_input", qos,
         std::bind(&DataLoggingMsg::cf_force_input_callback, this, _1));
 
-    cf_MJ_force_input_subscriber_ =
-      this->create_subscription<std_msgs::msg::Float64MultiArray>(
-        "/pen/global_MJ_Force_input", qos,
-        std::bind(&DataLoggingMsg::cf_MJ_force_input_callback, this, _1));
-
     cf_raw_force_input_subscriber_ =
       this->create_subscription<std_msgs::msg::Float64MultiArray>(
         "/pen/global_raw_Force_input", qos,
@@ -48,6 +45,26 @@ public:
       this->create_subscription<geometry_msgs::msg::PoseStamped>(
         "/pen/pose", qos,
         std::bind(&DataLoggingMsg::cf_pose_callback, this, _1));
+
+    cf_pose_EE_subscriber_ =
+      this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        "/pen/EE_xyzrpy", qos,
+        std::bind(&DataLoggingMsg::cf_pose_EE_callback, this, _1));
+
+    cf_ext_wrench_estimation_subscriber_ =
+      this->create_subscription<geometry_msgs::msg::Wrench>(
+        "/pen/wrench_estimation", qos,
+        std::bind(&DataLoggingMsg::cf_ext_wrench_estimation_callback, this, _1));
+
+    cf_desired_force_subscriber_ =
+      this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        "/pen/global_EE_des_force", qos,
+        std::bind(&DataLoggingMsg::cf_desired_force_callback, this, _1));
+
+    cf_global_xyz_cmd_subscriber_ = 
+      this->create_subscription<std_msgs::msg::Float64MultiArray>(
+        "/pen/EE_des_xyzYaw", qos,
+        std::bind(&DataLoggingMsg::cf_global_xyz_cmd_callback, this, _1));
 
     // Publisher
     data_logging_pub_ =
@@ -89,19 +106,6 @@ private:
     }
   }
 
-  void cf_MJ_force_input_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
-  {
-    if (msg->data.size() >= 3) {
-      global_MJ_force_input_[0] = msg->data[0];
-      global_MJ_force_input_[1] = msg->data[1];
-      global_MJ_force_input_[2] = msg->data[2];
-      has_force_ = true;
-    } else {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                           "global_Force_input size < 3");
-    }
-  }  
-
   void cf_raw_force_input_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
   {
     if (msg->data.size() >= 3) {
@@ -115,6 +119,42 @@ private:
     }
   }
 
+  void cf_ext_wrench_estimation_callback(const geometry_msgs::msg::Wrench::SharedPtr msg)
+  {
+
+      ext_wrench_hat_[0] = msg->force.x;
+      ext_wrench_hat_[1] = msg->force.y;
+      ext_wrench_hat_[2] = msg->force.z;
+      ext_wrench_hat_[3] = msg->torque.x;
+      ext_wrench_hat_[4] = msg->torque.y;
+      ext_wrench_hat_[5] = msg->torque.z;
+  }
+
+  void cf_desired_force_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+    if (msg->data.size() >= 3)
+    {
+      EE_des_force_[0] = msg->data[0];
+      EE_des_force_[1] = msg->data[1];
+      EE_des_force_[2] = msg->data[2];
+      has_force_ = true;
+    }
+    else
+    {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "ext_wrench_hat size < 3");
+    }
+  }
+
+  void cf_pose_EE_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+      global_EE_xyz_meas_[0] = msg->data[0];
+      global_EE_xyz_meas_[1] = msg->data[1];
+      global_EE_xyz_meas_[2] = msg->data[2];
+      global_EE_rpy_meas_[0] = msg->data[3];
+      global_EE_rpy_meas_[1] = msg->data[4];
+      global_EE_rpy_meas_[2] = msg->data[5];
+  }
 
   void cf_pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
   {
@@ -156,13 +196,21 @@ private:
             row2.x(), row2.y(), row2.z();
   }
 
+  void cf_global_xyz_cmd_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+  {
+      global_xyz_cmd_[0] = msg->data[0];
+      global_xyz_cmd_[1] = msg->data[1];
+      global_xyz_cmd_[2] = msg->data[2];
+      drone_yaw_ = msg->data[3];
+  }
+
   void control_loop()
   {
     // 경과 시간[s] (steady clock 기준, 단조증가)
     timer_tick++;
     timer_real = timer_tick / 100;
     std_msgs::msg::Float64MultiArray out;
-    out.data.reserve(17);  // 선택: 성능 최적화
+    out.data.reserve(24);  // 선택: 성능 최적화
 
     // [0] time(s)
     out.data.push_back(timer_real);
@@ -170,30 +218,54 @@ private:
     // [1] Vbat
     out.data.push_back(battery_voltage_);
 
-    // [2..4] Fx,Fy,Fz
+    // [2..4] SU_comensated thrust Fx,Fy,Fz
     out.data.push_back(global_SU_force_input_[0]);
     out.data.push_back(global_SU_force_input_[1]);
     out.data.push_back(global_SU_force_input_[2]);
 
-    // [2..4] Fx,Fy,Fz
-    out.data.push_back(global_MJ_force_input_[0]);
-    out.data.push_back(global_MJ_force_input_[1]);
-    out.data.push_back(global_MJ_force_input_[2]);
-
-    // [2..4] Fx,Fy,Fz
+    // [5..7] Not compensated Fx,Fy,Fz
     out.data.push_back(global_raw_force_input_[0]);
     out.data.push_back(global_raw_force_input_[1]);
     out.data.push_back(global_raw_force_input_[2]);
     
-    // [5..7] x,y,z
+    // [8..10] (drone) x,y,z
     out.data.push_back(global_xyz_meas_[0]);
     out.data.push_back(global_xyz_meas_[1]);
     out.data.push_back(global_xyz_meas_[2]);
 
-    // [8..10] roll,pitch,yaw_cont
+
+    // [11..12] (drone) roll,pitch,yaw_cont
     out.data.push_back(roll_);
     out.data.push_back(pitch_);
     out.data.push_back(yaw_continuous_);
+
+    // [13..18] (EE) x,y,z,roll,pitch,yaw
+    out.data.push_back(global_EE_xyz_meas_[0]);
+    out.data.push_back(global_EE_xyz_meas_[1]);
+    out.data.push_back(global_EE_xyz_meas_[2]);
+    out.data.push_back(global_EE_rpy_meas_[0]);
+    out.data.push_back(global_EE_rpy_meas_[1]);
+    out.data.push_back(global_EE_rpy_meas_[2]);
+
+    // [19..21] x,y,z,yaw command
+    out.data.push_back(global_xyz_cmd_[0]);
+    out.data.push_back(global_xyz_cmd_[1]);
+    out.data.push_back(global_xyz_cmd_[2]);
+    out.data.push_back(drone_yaw_);
+
+    // [22..27] external wrench x, y, z, roll, pitch, yaw
+    out.data.push_back(ext_wrench_hat_[0]);
+    out.data.push_back(ext_wrench_hat_[1]);
+    out.data.push_back(ext_wrench_hat_[2]);
+    out.data.push_back(ext_wrench_hat_[3]);
+    out.data.push_back(ext_wrench_hat_[4]);
+    out.data.push_back(ext_wrench_hat_[5]);
+
+    // [28..30] desired force x, y, z
+    out.data.push_back(EE_des_force_[0]);
+    out.data.push_back(EE_des_force_[1]);
+    out.data.push_back(EE_des_force_[2]);
+
 
     data_logging_pub_->publish(out);
   }
@@ -202,20 +274,29 @@ private:
   rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_battery_voltage_subscriber_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_raw_force_input_subscriber_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_SU_force_input_subscriber_;
-  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_MJ_force_input_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_global_xyz_cmd_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_pose_EE_subscriber_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr cf_pose_subscriber_;
+  rclcpp::Subscription<geometry_msgs::msg::Wrench>::SharedPtr cf_ext_wrench_estimation_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cf_desired_force_subscriber_;
 
 
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr data_logging_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   // States
+
+  Eigen::Vector3d global_EE_xyz_meas_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d global_EE_rpy_meas_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d global_xyz_cmd_ = Eigen::Vector3d::Zero();
   Eigen::Vector3d global_SU_force_input_ = Eigen::Vector3d::Zero();
-  Eigen::Vector3d global_MJ_force_input_ = Eigen::Vector3d::Zero();
   Eigen::Vector3d global_raw_force_input_ = Eigen::Vector3d::Zero();
+  Eigen::Matrix<double, 6, 1> ext_wrench_hat_ = Eigen::Matrix<double, 6, 1>::Zero();
+  Eigen::Vector3d EE_des_force_ = Eigen::Vector3d::Zero();
   Eigen::Vector3d global_xyz_meas_    = Eigen::Vector3d::Zero();
   Eigen::Matrix3d R_B_ = Eigen::Matrix3d::Identity();
 
+  double drone_yaw_{0.0};
   double battery_voltage_{0.0};
   bool has_battery_{false};
   bool has_force_{false};

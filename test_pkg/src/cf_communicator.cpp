@@ -61,6 +61,14 @@ public:
       std::bind(&CfCommunicator::cf_battery_voltage_callback, this, _1));
 
 
+
+    // ADD0915
+    cf_world_force_subscriber_ = this->create_subscription<crazyflie_interfaces::msg::LogDataGeneric>(
+      "/cf2/su_wrench_world_force", qos_settings,
+      std::bind(&CfCommunicator::cf_world_force_callback, this, _1));
+
+
+
     // Publishers
     pose_pub_    = this->create_publisher<geometry_msgs::msg::PoseStamped>("/pen/pose", qos_settings);
     acc_pub_     = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/acc", qos_settings);
@@ -71,6 +79,9 @@ public:
     torque_pub_  = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/body_torque_input", qos_settings);
     omega_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/omega", qos_settings);
     alpha_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/alpha", qos_settings);
+
+    global_force_firmware_pub_  = this->create_publisher<std_msgs::msg::Float64MultiArray>("/pen/global_Force_input", qos_settings); // from firmware
+
 
     // Timer: 100Hz
     timer_ = this->create_wall_timer(
@@ -154,11 +165,11 @@ private:
     thrust_data_[2] = msg->values[0];
 
     global_command_Force_raw = R_B * thrust_data_ / 100000.0;
-    global_command_Force_SU = global_command_Force_raw * (0.287803 * battery_voltage - 0.064043);
+    global_command_Force_SU = battery_scale_factor * global_command_Force_raw;
 
-    global_command_Force_MJ = global_command_Force_raw / (-0.314500 * battery_voltage + 2.161276);
+    global_command_Force_MJ = global_command_Force_raw / (-0.2714 * battery_voltage + 1.8286);
 
-  }
+    }
 
   // Callback: Omega
   void cf_omega_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
@@ -172,15 +183,35 @@ private:
     
     battery_voltage = msg->values[0];
 
+    // 0819
+    battery_scale_factor = 0.320569 * battery_voltage - 0.150439;
   }
 
   void cf_torque_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
   {
-    torque_data_[0] = 0.245 * msg->values[0] * (0.287803 * battery_voltage - 0.064043);
-    torque_data_[1] = -0.245 * msg->values[1] * (0.287803 * battery_voltage - 0.064043);
-    torque_data_[2] = -0.245 * msg->values[2] * (0.287803 * battery_voltage - 0.064043);
+    torque_data_[0] = msg->values[0];
+    torque_data_[1] = msg->values[1];
+    torque_data_[2] = msg->values[2];
   }
 
+  void cf_world_force_callback(const crazyflie_interfaces::msg::LogDataGeneric::SharedPtr msg)
+  {
+    cf_world_force_[0] = msg->values[0];
+    cf_world_force_[1] = msg->values[1];
+    cf_world_force_[2] = msg->values[2];
+
+      RCLCPP_INFO(
+        this->get_logger(),
+        "from Firmware = [%.3f, %.3f, %.3f]",
+        cf_world_force_[0], cf_world_force_[1], cf_world_force_[2]
+      );    
+      RCLCPP_INFO(
+        this->get_logger(),
+        "from PID = [%.3f, %.3f, %.3f]",
+        global_command_Force_raw[0], global_command_Force_raw[1], global_command_Force_raw[2]
+      );    
+
+  }  
 
   // Timer: Publishing
   void timer_callback()
@@ -254,6 +285,11 @@ private:
     global_command_torque_msg.data.push_back(torque_data_(2));
     torque_pub_->publish(global_command_torque_msg);
 
+    std_msgs::msg::Float64MultiArray global_force_firmware_msg;
+    global_force_firmware_msg.data.push_back(cf_world_force_(0));
+    global_force_firmware_msg.data.push_back(cf_world_force_(1));
+    global_force_firmware_msg.data.push_back(cf_world_force_(2));
+    global_force_firmware_pub_->publish(global_force_firmware_msg);
 
   }
 
@@ -278,6 +314,7 @@ private:
   rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_torque_subscriber_;
   rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_omega_subscriber_;
   rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_battery_voltage_subscriber_;
+  rclcpp::Subscription<crazyflie_interfaces::msg::LogDataGeneric>::SharedPtr cf_world_force_subscriber_;
   
   // Publishers
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
@@ -289,6 +326,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr omega_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr alpha_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr torque_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr global_force_firmware_pub_;
 
   // Timer
   rclcpp::TimerBase::SharedPtr timer_, num_cal_timer_;
@@ -309,10 +347,13 @@ private:
   Eigen::Vector3d global_command_Force_MJ{Eigen::Vector3d::Zero()};
   Eigen::Vector3d global_command_Force_raw{Eigen::Vector3d::Zero()};
   Eigen::Vector3d torque_data_{Eigen::Vector3d::Zero()};
+  Eigen::Vector3d cf_world_force_{Eigen::Vector3d::Zero()};
+
+
 
   Eigen::Vector3d body_rpy_meas;
 
-  double torque_const = 11500;
+
   double prev_yaw, yaw_offset, yaw_continuous, battery_voltage;
   double control_loop_hz, control_loop_period, num_control_loop_hz, num_control_loop_period;
   double battery_scale_factor;

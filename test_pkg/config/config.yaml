@@ -1,6 +1,6 @@
 global_config:
   ros__parameters:
-    Simulation: false
+    Simulation: true
     Inverse_Kinematics: true
 
 su_fkik:
@@ -11,7 +11,7 @@ su_fkik:
 
 trajectory_generator:
   ros__parameters:
-    position_delta_cmd: [0.1, 0.1, 0.1, 0.1]
+    position_delta_cmd: [0.3, 0.3, 0.2, 0.1]
     force_delta_cmd: 0.001
     control_loop_hz: 200.0
     numerical_calc_loop_hz: 50.0

@@ -315,9 +315,9 @@ public:
         start_point.z = 0;
         // RE_acceleration_filtered = alpha * RE_acceleration + (1.0 - alpha) * RE_acceleration_filtered;
 
-        end_point.x = start_point.x + acceleration[0] + gravity_body[0];
-        end_point.y = start_point.y + acceleration[1] + gravity_body[1];
-        end_point.z = start_point.z + acceleration[2] + gravity_body[2];
+        end_point.x = start_point.x + acceleration[0];// + gravity_body[0];
+        end_point.y = start_point.y + acceleration[1];// + gravity_body[1];
+        end_point.z = start_point.z + acceleration[2];// + gravity_body[2];
 
         marker.points.push_back(start_point);
         marker.points.push_back(end_point);
@@ -541,11 +541,8 @@ public:
     // Torque [Body]
     desired_torque[0] = msg->data[27];
     desired_torque[1] = msg->data[28];
-    desired_torque[2] = msg->data[29];
+    desired_torque[2] = msg->data[29] + msg->data[30];  //trim + RT
     RE_desired_torque = R_B * desired_torque;
-
-    // tz_trim
-    tz_trim_value = msg->data[30];
 
     // Torque Disturbance Estimate [Body]
     torque_dhat[0] = msg->data[31];
