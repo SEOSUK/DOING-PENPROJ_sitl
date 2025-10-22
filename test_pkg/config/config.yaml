@@ -11,13 +11,13 @@ su_fkik:
 
 trajectory_generator:
   ros__parameters:
-    position_delta_cmd: [0.3, 0.3, 0.2, 0.1]
+    position_delta_cmd: [0.1, 0.1, 0.1, 0.1]
     force_delta_cmd: 0.001
     control_loop_hz: 200.0
     numerical_calc_loop_hz: 50.0
     force_lpf_cof: 3.0
     normal_vector_estimator_lpf_cof: 3.0
-    surface_tracking: false
+    surface_tracking: true
     End_Effector_Offset: [0.075, 0.0, 0.02]
 
 data_decryptor:

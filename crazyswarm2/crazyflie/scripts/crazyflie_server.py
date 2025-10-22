@@ -818,7 +818,7 @@ class CrazyflieServer(Node):
         duration = float(request.duration.sec) + \
             float(request.duration.nanosec / 1e9)
 
-        self.get_logger().info(
+        self.get_logger().debug(
             "[%s] go_to(position=%f,%f,%f m, yaw=%f rad, duration=%f s, relative=%d, group_mask=%d)"
             % (
                 self.cf_dict[uri],

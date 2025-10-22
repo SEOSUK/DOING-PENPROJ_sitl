@@ -46,25 +46,20 @@
 
     
   <!-- 직육면체 링크 -->
-  <link name="box_link">
+  <link name="curvature">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <!-- x=0.1, y=1, z=0.8 [m] -->
-        <box size="0.01 2 1"/>
+        <mesh filename="package://test_pkg/models/meshes/curvature.dae" scale="0.01 0.02 0.02"/>
       </geometry>
-      <!-- 선택: 색상 -->
-      <material name="gray">
-        <color rgba="0.6 0.6 0.6 0.4"/>
-      </material>
     </visual>
   </link>
 
   <!-- 월드에 고정: 초기 위치 (2, 2, 2) -->
-  <joint name="world_to_box" type="fixed">
+  <joint name="world_to_curvature" type="fixed">
     <parent link="world"/>
-    <child link="box_link"/>
-    <origin xyz="1.18 0 1.5" rpy="0 0 0"/>
+    <child link="curvature"/>
+    <origin xyz="0.5 3.8 0" rpy="0 0 0"/>
   </joint>
   
 </robot>

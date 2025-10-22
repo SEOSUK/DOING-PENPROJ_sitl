@@ -676,12 +676,12 @@ private:
   void go_to(const std::shared_ptr<GoTo::Request> request,
              std::shared_ptr<GoTo::Response> response)
   {
-    RCLCPP_INFO(logger_, "[%s] go_to(position=%f,%f,%f m, yaw=%f rad, duration=%f s, relative=%d, group_mask=%d)",
-                name_.c_str(),
-                request->goal.x, request->goal.y, request->goal.z, request->yaw,
-                rclcpp::Duration(request->duration).seconds(),
-                request->relative,
-                request->group_mask);
+//    RCLCPP_INFO(logger_, "[%s] go_to(position=%f,%f,%f m, yaw=%f rad, duration=%f s, relative=%d, group_mask=%d)",
+//                name_.c_str(),
+//                request->goal.x, request->goal.y, request->goal.z, request->yaw,
+//                rclcpp::Duration(request->duration).seconds(),
+//                request->relative,
+//                request->group_mask);
     cf_.goTo(request->goal.x, request->goal.y, request->goal.z, request->yaw, 
               rclcpp::Duration(request->duration).seconds(),
               request->relative, request->group_mask);
